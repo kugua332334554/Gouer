@@ -17,6 +17,7 @@ from handlers import (
     group_to_supergroup_handler
 )
 from auth import new_member_handler, auth_callback_handler
+from welcome import welcome_callback_handler, welcome_input_handler
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -37,6 +38,10 @@ def main():
     
     # 注册进群验证专属的 Callback 处理器 (以 auth_ 开头)
     app.add_handler(CallbackQueryHandler(auth_callback_handler, pattern="^auth_"))
+    
+    # 注册进群欢迎专属 Callback 处理器 (以 wel_ 开头)
+    app.add_handler(CallbackQueryHandler(welcome_callback_handler, pattern="^wel_"))
+    
     # 注册普通的 Callback 处理器
     app.add_handler(CallbackQueryHandler(callback_handler))
     
@@ -44,6 +49,9 @@ def main():
     
     # 注册新成员进群拦截器
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member_handler))
+    
+    # 注册设置欢迎语的输入监听器（支持文本、图片、视频）
+    app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, welcome_input_handler), group=1)
     
     app.add_handler(MessageHandler(filters.StatusUpdate.MIGRATE, group_to_supergroup_handler))
     
