@@ -105,6 +105,7 @@ def get_group_manage_keyboard(chat_id: str) -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("进群验证", callback_data=f"group_verify_{chat_id}", icon_custom_emoji_id="5931409969613116639")],
         [InlineKeyboardButton("进群欢迎", callback_data=f"group_welcome_{chat_id}", icon_custom_emoji_id="4963072209334567688")],
+        [InlineKeyboardButton("积分管理", callback_data=f"group_jifen_{chat_id}", icon_custom_emoji_id="5197688912457245639")],
         [InlineKeyboardButton("« 返回群组列表", callback_data="group")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -150,6 +151,44 @@ def get_group_verification_keyboard(chat_id: str, current_state: dict) -> Inline
         [
             InlineKeyboardButton("禁言", callback_data=f"verify_set_pen_mute_{chat_id}", **opt_kwargs(current_state['penalty'] == 'mute')),
             InlineKeyboardButton("踢出", callback_data=f"verify_set_pen_kick_{chat_id}", **opt_kwargs(current_state['penalty'] == 'kick'))
+        ],
+        [InlineKeyboardButton("« 返回群组管理", callback_data=f"manage_group_{chat_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_group_jifen_keyboard(chat_id: str, state: dict) -> InlineKeyboardMarkup:
+    CHECK_EMOJI_ID = "5776375003280838798"
+    CROSS_EMOJI_ID = "5778527486270770928"
+    
+    def opt_kwargs(is_selected: bool):
+        if is_selected:
+            return {"style": "primary", "icon_custom_emoji_id": CHECK_EMOJI_ID}
+        return {"style": "default"}
+        
+    keyboard = [
+        [
+            InlineKeyboardButton("功能状态:", callback_data="noop"),
+            InlineKeyboardButton("开启", callback_data=f"jifen_set_status_1_{chat_id}", style="primary" if state['status'] else "default", icon_custom_emoji_id=CHECK_EMOJI_ID if state['status'] else None),
+            InlineKeyboardButton("关闭", callback_data=f"jifen_set_status_0_{chat_id}", style="primary" if not state['status'] else "default", icon_custom_emoji_id=CROSS_EMOJI_ID if not state['status'] else None)
+        ],
+        [InlineKeyboardButton("每条消息积分:", callback_data="noop")],
+        [
+            InlineKeyboardButton("0分", callback_data=f"jifen_set_msgpts_0_{chat_id}", **opt_kwargs(state['msg_points'] == 0)),
+            InlineKeyboardButton("1分", callback_data=f"jifen_set_msgpts_1_{chat_id}", **opt_kwargs(state['msg_points'] == 1)),
+            InlineKeyboardButton("2分", callback_data=f"jifen_set_msgpts_2_{chat_id}", **opt_kwargs(state['msg_points'] == 2)),
+            InlineKeyboardButton("5分", callback_data=f"jifen_set_msgpts_5_{chat_id}", **opt_kwargs(state['msg_points'] == 5))
+        ],
+        [
+            InlineKeyboardButton("过滤贴纸:", callback_data="noop"),
+            InlineKeyboardButton("是", callback_data=f"jifen_set_sticker_1_{chat_id}", style="primary" if state['ignore_stickers'] else "default", icon_custom_emoji_id=CHECK_EMOJI_ID if state['ignore_stickers'] else None),
+            InlineKeyboardButton("否", callback_data=f"jifen_set_sticker_0_{chat_id}", style="primary" if not state['ignore_stickers'] else "default", icon_custom_emoji_id=CROSS_EMOJI_ID if not state['ignore_stickers'] else None)
+        ],
+        [InlineKeyboardButton("签到消息删除:", callback_data="noop")],
+        [
+            InlineKeyboardButton("不删", callback_data=f"jifen_set_del_0_{chat_id}", **opt_kwargs(state.get('delete_time', 0) == 0)),
+            InlineKeyboardButton("10秒", callback_data=f"jifen_set_del_10_{chat_id}", **opt_kwargs(state.get('delete_time', 0) == 10)),
+            InlineKeyboardButton("30秒", callback_data=f"jifen_set_del_30_{chat_id}", **opt_kwargs(state.get('delete_time', 0) == 30)),
+            InlineKeyboardButton("1分钟", callback_data=f"jifen_set_del_60_{chat_id}", **opt_kwargs(state.get('delete_time', 0) == 60))
         ],
         [InlineKeyboardButton("« 返回群组管理", callback_data=f"manage_group_{chat_id}")]
     ]
