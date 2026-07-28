@@ -53,6 +53,19 @@ async def init_db():
                         verify_penalty VARCHAR(50) DEFAULT 'mute'
                     )
                 """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_welcome (
+                        chat_id BIGINT PRIMARY KEY,
+                        status BOOLEAN DEFAULT FALSE,
+                        delete_time INT DEFAULT 0,
+                        delete_last BOOLEAN DEFAULT FALSE,
+                        media_type VARCHAR(20) DEFAULT NULL,
+                        media_file_id VARCHAR(255) DEFAULT NULL,
+                        buttons_text TEXT DEFAULT NULL,
+                        welcome_text TEXT DEFAULT NULL,
+                        last_msg_id BIGINT DEFAULT NULL
+                    )
+                """)
         logger.info("db init success")
     except Exception as e:
         logger.error(f"db init fail: {e}", exc_info=True)
@@ -180,3 +193,54 @@ async def update_verify_settings(chat_id: int, status: bool, mode: str, duration
                 """, (chat_id, status, mode, duration, penalty))
     except Exception as e:
         logger.error(f"update_verify_settings err: {e}", exc_info=True)
+
+async def get_welcome_settings(chat_id: int) -> dict:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT status, delete_time, delete_last, media_type, media_file_id, buttons_text, welcome_text, last_msg_id FROM group_welcome WHERE chat_id = %s", (chat_id,))
+                res = await cur.fetchone()
+                if res:
+                    return {
+                        "status": bool(res[0]),
+                        "delete_time": res[1],
+                        "delete_last": bool(res[2]),
+                        "media_type": res[3],
+                        "media_file_id": res[4],
+                        "buttons_text": res[5],
+                        "welcome_text": res[6] or "欢迎 {MENTION} 加入本群",
+                        "last_msg_id": res[7]
+                    }
+    except Exception as e:
+        logger.error(f"get_welcome_settings err: {e}", exc_info=True)
+    return {
+        "status": False,
+        "delete_time": 0,
+        "delete_last": False,
+        "media_type": None,
+        "media_file_id": None,
+        "buttons_text": None,
+        "welcome_text": "欢迎 {MENTION} 加入本群",
+        "last_msg_id": None
+    }
+
+async def update_welcome_settings(chat_id: int, **kwargs):
+    if not kwargs:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT IGNORE INTO group_welcome (chat_id) VALUES (%s)",
+                    (chat_id,)
+                )
+                set_parts = []
+                values = []
+                for k, v in kwargs.items():
+                    set_parts.append(f"{k}=%s")
+                    values.append(v)
+                values.append(chat_id)
+                sql = f"UPDATE group_welcome SET {', '.join(set_parts)} WHERE chat_id = %s"
+                await cur.execute(sql, values)
+    except Exception as e:
+        logger.error(f"update_welcome_settings err: {e}", exc_info=True)
