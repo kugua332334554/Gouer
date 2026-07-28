@@ -12,7 +12,8 @@ from database import (
     get_all_groups,
     get_all_channels,
     get_verify_settings,
-    update_verify_settings
+    update_verify_settings,
+    get_welcome_settings
 )
 from keyboards import (
     get_start_keyboard, 
@@ -24,6 +25,7 @@ from keyboards import (
     get_group_manage_keyboard,
     get_group_verification_keyboard
 )
+from welcome import get_welcome_text, get_welcome_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +148,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_state = await get_verify_settings(chat_id)
         text = get_verification_text(current_state)
         reply_markup = get_group_verification_keyboard(chat_id, current_state)
+        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
+
+    elif data.startswith("group_welcome_"):
+        await query.answer()
+        chat_id = data.split("_")[2]
+        welcome_state = await get_welcome_settings(int(chat_id))
+        text = get_welcome_text(welcome_state)
+        reply_markup = get_welcome_keyboard(chat_id, welcome_state)
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
         
     elif data.startswith("verify_set_"):
