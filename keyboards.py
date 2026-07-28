@@ -19,7 +19,7 @@ def get_start_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("语言", callback_data="language", style="primary", icon_custom_emoji_id="5879585266426973039")
         ],
         [
-            InlineKeyboardButton("帮助", url=config.LINK if config.LINK else "https://t.me", style="primary", icon_custom_emoji_id="5877443836174667888")
+            InlineKeyboardButton("帮助频道", url=config.LINK if config.LINK else "https://t.me", style="primary", icon_custom_emoji_id="5771695636411847302")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -104,6 +104,7 @@ def get_pagination_keyboard(items: list, page: int, item_type: str, bot_username
 def get_group_manage_keyboard(chat_id: str) -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("进群验证", callback_data=f"group_verify_{chat_id}", icon_custom_emoji_id="5931409969613116639")],
+        [InlineKeyboardButton("进群欢迎", callback_data=f"group_welcome_{chat_id}", icon_custom_emoji_id="4963072209334567688")],
         [InlineKeyboardButton("« 返回群组列表", callback_data="group")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -113,13 +114,11 @@ def get_group_verification_keyboard(chat_id: str, current_state: dict) -> Inline
     CROSS_EMOJI_ID = "5778527486270770928"
 
     def opt_kwargs(is_selected: bool):
-        """选中时返回高亮 style 和选中的表情 id，未选中则不带 icon_custom_emoji_id"""
         if is_selected:
             return {"style": "primary", "icon_custom_emoji_id": CHECK_EMOJI_ID}
         return {"style": "default"}
 
     keyboard = [
-        # 状态行
         [
             InlineKeyboardButton("状态:", callback_data="noop"),
             InlineKeyboardButton(
@@ -135,27 +134,23 @@ def get_group_verification_keyboard(chat_id: str, current_state: dict) -> Inline
                 icon_custom_emoji_id=CROSS_EMOJI_ID if not current_state['status'] else None
             )
         ],
-        # 模式行
         [InlineKeyboardButton("模式:", callback_data="noop")],
         [
             InlineKeyboardButton("按钮模式", callback_data=f"verify_set_mode_button_{chat_id}", **opt_kwargs(current_state['mode'] == 'button')),
             InlineKeyboardButton("数学题", callback_data=f"verify_set_mode_math_{chat_id}", **opt_kwargs(current_state['mode'] == 'math')),
             InlineKeyboardButton("验证码", callback_data=f"verify_set_mode_captcha_{chat_id}", **opt_kwargs(current_state['mode'] == 'captcha'))
         ],
-        # 验证时长行
         [InlineKeyboardButton("验证时长:", callback_data="noop")],
         [
             InlineKeyboardButton("1分钟", callback_data=f"verify_set_dur_1_{chat_id}", **opt_kwargs(current_state['duration'] == 1)),
             InlineKeyboardButton("5分钟", callback_data=f"verify_set_dur_5_{chat_id}", **opt_kwargs(current_state['duration'] == 5)),
             InlineKeyboardButton("10分钟", callback_data=f"verify_set_dur_10_{chat_id}", **opt_kwargs(current_state['duration'] == 10))
         ],
-        # 超时惩罚行
         [InlineKeyboardButton("超时惩罚:", callback_data="noop")],
         [
             InlineKeyboardButton("禁言", callback_data=f"verify_set_pen_mute_{chat_id}", **opt_kwargs(current_state['penalty'] == 'mute')),
             InlineKeyboardButton("踢出", callback_data=f"verify_set_pen_kick_{chat_id}", **opt_kwargs(current_state['penalty'] == 'kick'))
         ],
-        # 返回按钮
         [InlineKeyboardButton("« 返回群组管理", callback_data=f"manage_group_{chat_id}")]
     ]
     return InlineKeyboardMarkup(keyboard)
