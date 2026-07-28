@@ -1,4 +1,5 @@
 import logging
+import datetime
 import aiomysql
 import config
 
@@ -66,7 +67,36 @@ async def init_db():
                         last_msg_id BIGINT DEFAULT NULL
                     )
                 """)
-        logger.info("db init success")
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_points_settings (
+                        chat_id BIGINT PRIMARY KEY,
+                        status BOOLEAN DEFAULT FALSE,
+                        msg_points INT DEFAULT 0,
+                        ignore_stickers BOOLEAN DEFAULT TRUE,
+                        delete_time INT DEFAULT 0
+                    )
+                """)
+                try:
+                    await cur.execute("ALTER TABLE group_points_settings ADD COLUMN delete_time INT DEFAULT 0")
+                except Exception:
+                    pass
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_points (
+                        chat_id BIGINT,
+                        user_id BIGINT,
+                        points INT DEFAULT 0,
+                        PRIMARY KEY (chat_id, user_id)
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_checkin (
+                        chat_id BIGINT,
+                        user_id BIGINT,
+                        last_checkin DATE,
+                        streak INT DEFAULT 0,
+                        PRIMARY KEY (chat_id, user_id)
+                    )
+                """)
     except Exception as e:
         logger.error(f"db init fail: {e}", exc_info=True)
 
@@ -123,7 +153,6 @@ async def register_channel(chat_id: int, title: str, username: str = None):
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-        logger.info(f"channel table created: {table_name}")
     except Exception as e:
         logger.error(f"channel table fail: {e}", exc_info=True)
 
@@ -146,7 +175,6 @@ async def register_supergroup(chat_id: int, title: str, username: str = None, ch
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-        logger.info(f"group table created: {table_name}")
     except Exception as e:
         logger.error(f"group table fail: {e}", exc_info=True)
 
@@ -244,3 +272,132 @@ async def update_welcome_settings(chat_id: int, **kwargs):
                 await cur.execute(sql, values)
     except Exception as e:
         logger.error(f"update_welcome_settings err: {e}", exc_info=True)
+
+async def get_points_settings(chat_id: int) -> dict:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT status, msg_points, ignore_stickers, delete_time FROM group_points_settings WHERE chat_id = %s", (chat_id,))
+                res = await cur.fetchone()
+                if res:
+                    return {"status": bool(res[0]), "msg_points": res[1], "ignore_stickers": bool(res[2]), "delete_time": res[3]}
+    except Exception as e:
+        pass
+    return {"status": False, "msg_points": 0, "ignore_stickers": True, "delete_time": 0}
+
+async def update_points_settings(chat_id: int, status: bool, msg_points: int, ignore_stickers: bool, delete_time: int):
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("""
+                    INSERT INTO group_points_settings (chat_id, status, msg_points, ignore_stickers, delete_time)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE status=VALUES(status), msg_points=VALUES(msg_points), ignore_stickers=VALUES(ignore_stickers), delete_time=VALUES(delete_time)
+                """, (chat_id, status, msg_points, ignore_stickers, delete_time))
+    except Exception as e:
+        logger.error(f"update_points_settings err: {e}", exc_info=True)
+
+async def add_user_points(chat_id: int, user_id: int, points: int):
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("""
+                    INSERT INTO user_points (chat_id, user_id, points)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE points = points + %s
+                """, (chat_id, user_id, points, points))
+    except Exception as e:
+        pass
+
+async def process_checkin(chat_id: int, user_id: int, tz_offset: int = 0) -> dict:
+    now_utc = datetime.datetime.utcnow()
+    today_local = (now_utc + datetime.timedelta(hours=tz_offset)).date()
+    today_utc = now_utc.date()
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT last_checkin, streak FROM user_checkin WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
+                row = await cur.fetchone()
+                streak = 0
+                last_checkin_utc = None
+                if row:
+                    last_checkin_utc = row[0]
+                    streak = row[1]
+                if last_checkin_utc:
+                    last_checkin_local = (datetime.datetime.combine(last_checkin_utc, datetime.time.min) + datetime.timedelta(hours=tz_offset)).date()
+                else:
+                    last_checkin_local = None
+                if last_checkin_local == today_local:
+                    return {"already_checked_in": True}
+                if last_checkin_local == today_local - datetime.timedelta(days=1):
+                    streak += 1
+                else:
+                    streak = 1
+                gained = streak
+                await cur.execute("""
+                    INSERT INTO user_checkin (chat_id, user_id, last_checkin, streak)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE last_checkin=VALUES(last_checkin), streak=VALUES(streak)
+                """, (chat_id, user_id, today_utc, streak))
+                await cur.execute("""
+                    INSERT INTO user_points (chat_id, user_id, points)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE points = points + %s
+                """, (chat_id, user_id, gained, gained))
+                await cur.execute("SELECT points FROM user_points WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
+                total = (await cur.fetchone())[0]
+                return {"already_checked_in": False, "gained": gained, "streak": streak, "total": total}
+    except Exception as e:
+        return {"already_checked_in": True}
+
+async def get_user_points(chat_id: int, user_id: int) -> int:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT points FROM user_points WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
+                result = await cur.fetchone()
+                return result[0] if result else 0
+    except Exception:
+        return 0
+
+async def update_user_points_direct(chat_id: int, user_id: int, delta: int) -> int:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("""
+                    INSERT INTO user_points (chat_id, user_id, points)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE points = points + %s
+                """, (chat_id, user_id, delta, delta))
+                await cur.execute("SELECT points FROM user_points WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
+                result = await cur.fetchone()
+                return result[0] if result else 0
+    except Exception:
+        return 0
+
+async def get_points_rank(chat_id: int, limit: int = 10) -> list:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("""
+                    SELECT user_id, points FROM user_points
+                    WHERE chat_id = %s
+                    ORDER BY points DESC
+                    LIMIT %s
+                """, (chat_id, limit))
+                return await cur.fetchall()
+    except Exception:
+        return []
+
+async def log_group_action(chat_id: int, user_id: int, action: str):
+    clean_id = _clean_chat_id(chat_id)
+    table_name = f"qunzu_{clean_id}"
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"""
+                    INSERT INTO `{table_name}` (user_id, action)
+                    VALUES (%s, %s)
+                """, (user_id, action))
+    except Exception:
+        pass
