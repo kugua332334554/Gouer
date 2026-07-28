@@ -7,6 +7,7 @@ from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboa
 from telegram.ext import ContextTypes
 import config
 from database import get_verify_settings
+from welcome import send_welcome_message
 
 logger = logging.getLogger(__name__)
 
@@ -81,113 +82,117 @@ def generate_captcha_image():
     
     return bio, code, opts_list
 
-async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
+async def perform_verification(context: ContextTypes.DEFAULT_TYPE, chat, user):
+    if user.is_bot:
+        return
+
     shield_emoji = getattr(config, "EMOJI_SHIELD", '<tg-emoji emoji-id="5931409969613116639">🛡</tg-emoji>')
     
-    for member in update.message.new_chat_members:
-        if member.is_bot:
-            continue
-            
-        settings = await get_verify_settings(chat.id)
-        if not settings or not settings.get("status"):
-            continue
-            
-        try:
-            await context.bot.restrict_chat_member(
-                chat_id=chat.id,
-                user_id=member.id,
-                permissions=ChatPermissions(
-                    can_send_messages=False,
-                    can_send_audios=False,
-                    can_send_documents=False,
-                    can_send_photos=False,
-                    can_send_videos=False,
-                    can_send_video_notes=False,
-                    can_send_voice_notes=False,
-                    can_send_polls=False,
-                    can_send_other_messages=False,
-                    can_add_web_page_previews=False
-                )
-            )
-        except Exception as e:
-            logger.error(f"restrict fail: {e}")
-            continue
-
-        mode = settings.get("mode", "button")
-        duration = settings.get("duration", 1)
-        penalty = settings.get("penalty", "mute")
+    settings = await get_verify_settings(chat.id)
+    if not settings or not settings.get("status"):
+        await send_welcome_message(context, chat, user)
+        return
         
-        user_mention = f'<a href="tg://user?id={member.id}">{member.first_name}</a>'
-        keyboard = []
-        sent_msg = None
-        correct_ans = ""
+    key = (chat.id, user.id)
+    if key in PENDING_VERIFICATIONS:
+        logger.info(f"Verification already pending for {user.id} in {chat.id}, skipping duplicate.")
+        return
         
-        if mode == "button":
-            text = (
-                f"{shield_emoji} 欢迎 {user_mention}！\n"
-                f"请在 <b>{duration}</b> 分钟内点击下方按钮完成验证（只有一次机会）："
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=chat.id,
+            user_id=user.id,
+            permissions=ChatPermissions(
+                can_send_messages=False,
+                can_send_audios=False,
+                can_send_documents=False,
+                can_send_photos=False,
+                can_send_videos=False,
+                can_send_video_notes=False,
+                can_send_voice_notes=False,
+                can_send_polls=False,
+                can_send_other_messages=False,
+                can_add_web_page_previews=False
             )
-            keyboard = [
-                [InlineKeyboardButton("点击完成验证", callback_data=f"auth_pass_{member.id}", style="primary", icon_custom_emoji_id=CHECK_EMOJI_ID)],
-                [InlineKeyboardButton("管理员通过", callback_data=f"auth_adminpass_{member.id}")]
-            ]
-            sent_msg = await context.bot.send_message(
-                chat_id=chat.id, 
-                text=text, 
-                reply_markup=InlineKeyboardMarkup(keyboard), 
-                parse_mode="HTML"
-            )
-            correct_ans = "pass"
-            
-        elif mode == "math":
-            expr, correct_ans, opts = generate_complex_math()
-            text = (
-                f"{shield_emoji} 欢迎 {user_mention}！\n"
-                f"请在 <b>{duration}</b> 分钟内计算算式（<b>只有一次机会</b>）：\n\n"
-                f"<b>{expr} = ?</b>"
-            )
-            row = []
-            for opt in opts:
-                cb_data = f"auth_check_{opt}_{member.id}"
-                row.append(InlineKeyboardButton(opt, callback_data=cb_data, icon_custom_emoji_id=CHECK_EMOJI_ID))
-            
-            keyboard = [row, [InlineKeyboardButton("管理员通过", callback_data=f"auth_adminpass_{member.id}")]]
-            
-            sent_msg = await context.bot.send_message(
-                chat_id=chat.id, 
-                text=text, 
-                reply_markup=InlineKeyboardMarkup(keyboard), 
-                parse_mode="HTML"
-            )
-            
-        elif mode == "captcha":
-            photo_bio, correct_ans, opts = generate_captcha_image()
-            caption = (
-                f"{shield_emoji} 欢迎 {user_mention}！\n"
-                f"请在 <b>{duration}</b> 分钟内选择正确的验证码（<b>只有一次机会</b>）："
-            )
-            row = []
-            for opt in opts:
-                cb_data = f"auth_check_{opt}_{member.id}"
-                row.append(InlineKeyboardButton(opt, callback_data=cb_data, icon_custom_emoji_id=CHECK_EMOJI_ID))
-            
-            keyboard = [row, [InlineKeyboardButton("管理员通过", callback_data=f"auth_adminpass_{member.id}")]]
-            
-            sent_msg = await context.bot.send_photo(
-                chat_id=chat.id,
-                photo=photo_bio,
-                caption=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="HTML"
-            )
+        )
+    except Exception as e:
+        logger.error(f"restrict fail for {user.id} in {chat.id}: {e}")
+        return
 
-        task = asyncio.create_task(handle_timeout(context, chat.id, member.id, duration, penalty))
-        PENDING_VERIFICATIONS[(chat.id, member.id)] = {
-            "msg_id": sent_msg.message_id,
-            "task": task,
-            "correct_ans": correct_ans
-        }
+    mode = settings.get("mode", "button")
+    duration = settings.get("duration", 1)
+    penalty = settings.get("penalty", "mute")
+    
+    user_mention = f'<a href="tg://user?id={user.id}">{user.first_name}</a>'
+    keyboard = []
+    sent_msg = None
+    correct_ans = ""
+    
+    if mode == "button":
+        text = (
+            f"{shield_emoji} 欢迎 {user_mention}！\n"
+            f"请在 <b>{duration}</b> 分钟内点击下方按钮完成验证（只有一次机会）："
+        )
+        keyboard = [
+            [InlineKeyboardButton("点击完成验证", callback_data=f"auth_pass_{user.id}", style="primary", icon_custom_emoji_id=CHECK_EMOJI_ID)],
+            [InlineKeyboardButton("管理员通过", callback_data=f"auth_adminpass_{user.id}")]
+        ]
+        sent_msg = await context.bot.send_message(
+            chat_id=chat.id, 
+            text=text, 
+            reply_markup=InlineKeyboardMarkup(keyboard), 
+            parse_mode="HTML"
+        )
+        correct_ans = "pass"
+        
+    elif mode == "math":
+        expr, correct_ans, opts = generate_complex_math()
+        text = (
+            f"{shield_emoji} 欢迎 {user_mention}！\n"
+            f"请在 <b>{duration}</b> 分钟内计算算式（<b>只有一次机会</b>）：\n\n"
+            f"<b>{expr} = ?</b>"
+        )
+        row = []
+        for opt in opts:
+            cb_data = f"auth_check_{opt}_{user.id}"
+            row.append(InlineKeyboardButton(opt, callback_data=cb_data, icon_custom_emoji_id=CHECK_EMOJI_ID))
+        
+        keyboard = [row, [InlineKeyboardButton("管理员通过", callback_data=f"auth_adminpass_{user.id}")]]
+        
+        sent_msg = await context.bot.send_message(
+            chat_id=chat.id, 
+            text=text, 
+            reply_markup=InlineKeyboardMarkup(keyboard), 
+            parse_mode="HTML"
+        )
+        
+    elif mode == "captcha":
+        photo_bio, correct_ans, opts = generate_captcha_image()
+        caption = (
+            f"{shield_emoji} 欢迎 {user_mention}！\n"
+            f"请在 <b>{duration}</b> 分钟内选择正确的验证码（<b>只有一次机会</b>）："
+        )
+        row = []
+        for opt in opts:
+            cb_data = f"auth_check_{opt}_{user.id}"
+            row.append(InlineKeyboardButton(opt, callback_data=cb_data, icon_custom_emoji_id=CHECK_EMOJI_ID))
+        
+        keyboard = [row, [InlineKeyboardButton("管理员通过", callback_data=f"auth_adminpass_{user.id}")]]
+        
+        sent_msg = await context.bot.send_photo(
+            chat_id=chat.id,
+            photo=photo_bio,
+            caption=caption,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+
+    task = asyncio.create_task(handle_timeout(context, chat.id, user.id, duration, penalty))
+    PENDING_VERIFICATIONS[(chat.id, user.id)] = {
+        "msg_id": sent_msg.message_id,
+        "task": task,
+        "correct_ans": correct_ans
+    }
 
 async def handle_timeout(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int, duration: int, penalty: str):
     await asyncio.sleep(duration * 60)
@@ -205,6 +210,31 @@ async def handle_timeout(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_
                 await context.bot.unban_chat_member(chat_id=chat_id, user_id=user_id)
         except Exception as e:
             logger.error(f"timeout penalty fail: {e}")
+
+async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    for member in update.message.new_chat_members:
+        await perform_verification(context, chat, member)
+
+async def chat_member_update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_member = update.chat_member
+    if not chat_member:
+        return
+        
+    old = chat_member.old_chat_member
+    new = chat_member.new_chat_member
+    user = new.user
+    chat = update.effective_chat
+
+    if user.is_bot:
+        return
+
+    old_status = old.status
+    new_status = new.status
+
+    if old_status in ["left", "banned", "restricted"] and new_status in ["member", "administrator"]:
+        logger.info(f"Detected join/unban/restore via chat_member for {user.id} in {chat.id}")
+        await perform_verification(context, chat, user)
 
 async def auth_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -249,6 +279,9 @@ async def auth_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 )
             )
             await query.answer("✅ 已由管理员手动放行！", show_alert=True)
+            
+            target_user = await context.bot.get_chat_member(chat.id, target_user_id)
+            await send_welcome_message(context, chat, target_user.user)
         except Exception as e:
             logger.error(f"admin pass fail: {e}")
         return
@@ -296,6 +329,7 @@ async def auth_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 )
             )
             await query.answer("✅ 验证成功！欢迎加入！", show_alert=True)
+            await send_welcome_message(context, chat, user)
         except Exception as e:
             logger.error(f"unrestrict fail: {e}")
     else:
