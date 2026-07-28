@@ -77,6 +77,10 @@ async def init_db():
                     )
                 """)
                 try:
+                    await cur.execute("ALTER TABLE users ADD COLUMN language VARCHAR(10) DEFAULT 'zh'")
+                except Exception:
+                    pass
+                try:
                     await cur.execute("ALTER TABLE group_points_settings ADD COLUMN delete_time INT DEFAULT 0")
                 except Exception:
                     pass
@@ -95,6 +99,123 @@ async def init_db():
                         last_checkin DATE,
                         streak INT DEFAULT 0,
                         PRIMARY KEY (chat_id, user_id)
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_dingshi (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        chat_id BIGINT NOT NULL,
+                        schedule_time VARCHAR(5) NOT NULL,
+                        schedule_days VARCHAR(50) DEFAULT '*',
+                        content_text TEXT,
+                        buttons_text TEXT,
+                        media_type VARCHAR(20),
+                        media_file_id VARCHAR(255),
+                        status BOOLEAN DEFAULT TRUE,
+                        last_sent_date DATE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_night (
+                        chat_id BIGINT PRIMARY KEY,
+                        status BOOLEAN DEFAULT FALSE,
+                        start_hour INT DEFAULT 0,
+                        end_hour INT DEFAULT 6,
+                        notify BOOLEAN DEFAULT TRUE
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_choujiang_settings (
+                        chat_id BIGINT PRIMARY KEY,
+                        pin_lottery BOOLEAN DEFAULT TRUE,
+                        pin_result BOOLEAN DEFAULT TRUE,
+                        delete_entry INT DEFAULT 0,
+                        push_channel VARCHAR(255) DEFAULT ''
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_choujiang (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        chat_id BIGINT NOT NULL,
+                        creator_id BIGINT,
+                        type VARCHAR(20) DEFAULT 'general',
+                        title VARCHAR(255) NOT NULL,
+                        prize_description TEXT,
+                        winner_count INT DEFAULT 1,
+                        entry_cost INT DEFAULT 0,
+                        draw_method VARCHAR(20) DEFAULT 'count',
+                        draw_count INT DEFAULT 0,
+                        draw_time DATETIME,
+                        status VARCHAR(20) DEFAULT 'active',
+                        message_id BIGINT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_choujiang_entries (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        lottery_id INT NOT NULL,
+                        user_id BIGINT NOT NULL,
+                        entry_data VARCHAR(255) DEFAULT '',
+                        UNIQUE KEY unique_entry (lottery_id, user_id)
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_choujiang_winners (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        lottery_id INT NOT NULL,
+                        user_id BIGINT NOT NULL
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_kuaisufabu (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        creator_id BIGINT NOT NULL,
+                        name VARCHAR(255) NOT NULL,
+                        keyword VARCHAR(100) NOT NULL,
+                        content_text TEXT,
+                        buttons_text TEXT,
+                        media_type VARCHAR(20),
+                        media_file_id VARCHAR(255),
+                        status BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                try:
+                    await cur.execute("ALTER TABLE group_kuaisufabu CHANGE COLUMN chat_id creator_id BIGINT NOT NULL")
+                except Exception:
+                    pass
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_autodelete (
+                        chat_id BIGINT PRIMARY KEY,
+                        pin BOOLEAN DEFAULT FALSE,
+                        photo BOOLEAN DEFAULT FALSE,
+                        title BOOLEAN DEFAULT FALSE
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_permission (
+                        chat_id BIGINT PRIMARY KEY,
+                        permissions VARCHAR(255) DEFAULT 'all'
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS channel_autobutton (
+                        chat_id BIGINT PRIMARY KEY,
+                        status BOOLEAN DEFAULT FALSE,
+                        buttons_text TEXT
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_weijinci (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        chat_id BIGINT NOT NULL,
+                        word VARCHAR(255) NOT NULL,
+                        penalty VARCHAR(20) DEFAULT 'delete',
+                        mute_duration INT DEFAULT 3600,
+                        status BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
     except Exception as e:

@@ -16,6 +16,7 @@ LINK_EMOJI_ID = "5879585266426973039"
 TEXT_EMOJI_ID = "5879895758202735862"
 WARN_EMOJI_ID = "5447644880824181073"
 STAR_EMOJI_ID = "6323440286445867472"
+DELETE_EMOJI_ID = "6017288111279575194"
 
 
 def get_message_html(message) -> str:
@@ -253,6 +254,15 @@ async def welcome_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await send_welcome_panel(context, int(chat_id), update.effective_chat.id)
         return
 
+    if action == "clear":
+        if sub_action == "media":
+            await update_welcome_settings(int(chat_id), media_type="", media_file_id="")
+            context.user_data.pop("await_welcome_input", None)
+            await query.answer("媒体已清空！")
+            await query.message.delete()
+            await send_welcome_panel(context, int(chat_id), update.effective_chat.id)
+        return
+
     if action == "set":
         if sub_action == "status":
             val = int(parts[3])
@@ -306,6 +316,9 @@ async def welcome_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await query.message.reply_html(prompt, reply_markup=reply_markup)
 
         elif sub_action == "media":
+            clear_btn = InlineKeyboardButton("清空媒体", callback_data=f"wel_clear_media_{chat_id}", icon_custom_emoji_id=DELETE_EMOJI_ID)
+            cancel_btn = InlineKeyboardButton("« 取消", callback_data=f"wel_cancel_{chat_id}")
+            reply_markup = InlineKeyboardMarkup([[clear_btn], [cancel_btn]])
             prompt = "欢迎媒体支持：请发送图片或视频，文件大小不超过 5MB"
             await query.message.reply_html(prompt, reply_markup=reply_markup)
 
@@ -322,6 +335,8 @@ async def welcome_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
 
 async def welcome_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.channel_post or not update.effective_user or context.user_data is None:
+        return
     await_data = context.user_data.get("await_welcome_input")
     if not await_data:
         return
@@ -338,6 +353,13 @@ async def welcome_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await send_welcome_panel(context, chat_id, update.effective_chat.id)
 
     elif input_type == "media":
+        raw_text = (message.text or message.caption or "").strip()
+        if raw_text in ["清空", "清除", "clear"]:
+            await update_welcome_settings(chat_id, media_type="", media_file_id="")
+            context.user_data.pop("await_welcome_input", None)
+            await message.reply_html(f'<tg-emoji emoji-id="{CHECK_EMOJI_ID}">✅</tg-emoji> 欢迎媒体已清空！')
+            await send_welcome_panel(context, chat_id, update.effective_chat.id)
+            return
         media_type = None
         media_file_id = None
         file_size = 0

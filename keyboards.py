@@ -16,7 +16,7 @@ def get_start_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("时区", callback_data="timezone", style="primary", icon_custom_emoji_id="5258419835922030550"),
-            InlineKeyboardButton("语言", callback_data="language", style="primary", icon_custom_emoji_id="5879585266426973039")
+            InlineKeyboardButton("语言", callback_data="changelang", style="primary", icon_custom_emoji_id="5879585266426973039")
         ],
         [
             InlineKeyboardButton("帮助频道", url=config.LINK if config.LINK else "https://t.me", style="primary", icon_custom_emoji_id="5771695636411847302")
@@ -101,11 +101,27 @@ def get_pagination_keyboard(items: list, page: int, item_type: str, bot_username
     keyboard.append([InlineKeyboardButton("« 返回主菜单", callback_data="back_to_main")])
     return InlineKeyboardMarkup(keyboard)
 
+def get_channel_manage_keyboard(chat_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("定时消息", callback_data=f"group_dingshi_{chat_id}", icon_custom_emoji_id="5258419835922030550")],
+        [InlineKeyboardButton("自动按钮", callback_data=f"ab_panel_{chat_id}", icon_custom_emoji_id="5879841310902324730")],
+        [InlineKeyboardButton("控制权限", callback_data=f"perm_panel_{chat_id}", icon_custom_emoji_id="5931409969613116639")],
+        [InlineKeyboardButton("自动删除", callback_data=f"ad_panel_{chat_id}", icon_custom_emoji_id="5927054181285237634")],
+        [InlineKeyboardButton("« 返回频道列表", callback_data="channel")]
+    ])
+
+
 def get_group_manage_keyboard(chat_id: str) -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("进群验证", callback_data=f"group_verify_{chat_id}", icon_custom_emoji_id="5931409969613116639")],
         [InlineKeyboardButton("进群欢迎", callback_data=f"group_welcome_{chat_id}", icon_custom_emoji_id="4963072209334567688")],
         [InlineKeyboardButton("积分管理", callback_data=f"group_jifen_{chat_id}", icon_custom_emoji_id="5197688912457245639")],
+        [InlineKeyboardButton("定时消息", callback_data=f"group_dingshi_{chat_id}", icon_custom_emoji_id="5258419835922030550")],
+        [InlineKeyboardButton("违禁词", callback_data=f"group_weijinci_{chat_id}", icon_custom_emoji_id="5931409969613116639")],
+        [InlineKeyboardButton("夜间模式", callback_data=f"group_night_{chat_id}", icon_custom_emoji_id="5814500882506589776")],
+        [InlineKeyboardButton("抽奖", callback_data=f"group_choujiang_{chat_id}", icon_custom_emoji_id="5864128984798730231")],
+        [InlineKeyboardButton("控制权限", callback_data=f"perm_panel_{chat_id}", icon_custom_emoji_id="5931409969613116639")],
+        [InlineKeyboardButton("自动删除", callback_data=f"ad_panel_{chat_id}", icon_custom_emoji_id="5927054181285237634")],
         [InlineKeyboardButton("« 返回群组列表", callback_data="group")]
     ]
     return InlineKeyboardMarkup(keyboard)

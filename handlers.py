@@ -31,9 +31,12 @@ from keyboards import (
     get_private_chat_keyboard,
     get_pagination_keyboard,
     get_group_manage_keyboard,
+    get_channel_manage_keyboard,
     get_group_verification_keyboard,
     get_group_jifen_keyboard
 )
+from dingshi import get_dingshi_count
+from lang import t
 from welcome import get_welcome_text, get_welcome_keyboard
 
 logger = logging.getLogger(__name__)
@@ -179,6 +182,31 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = config.TIMEZONE_MESSAGE.replace("\\n", "\n").format(TIMEZONE=new_tz)
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=get_timezone_keyboard())
 
+    elif data == "changelang":
+        await query.answer()
+        from lang import LANG_NAMES, set_user_lang, t as lang_t
+        keyboard = [
+            [InlineKeyboardButton(f'{v}', callback_data=f"setlang_{k}", icon_custom_emoji_id="5879585266426973039")] for k, v in LANG_NAMES.items()
+        ]
+        keyboard.append([InlineKeyboardButton("« 返回主菜单", callback_data="back_to_main")])
+        current_lang = LANG_NAMES.get(await (__import__('lang').get_user_lang(user_id)), "简体中文")
+        await query.edit_message_text(
+            text=f'<tg-emoji emoji-id="5879585266426973039">🌐</tg-emoji> <b>选择语言 / Select Language</b>\n\n当前：{current_lang}',
+            parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif data.startswith("setlang_"):
+        lang_code = data.replace("setlang_", "")
+        from lang import set_user_lang, LANG_NAMES, t as lang_t
+        await set_user_lang(user_id, lang_code)
+        new_name = LANG_NAMES.get(lang_code, lang_code)
+        await query.answer(LANG_NAMES.get(lang_code, lang_code), show_alert=True)
+        await query.edit_message_text(
+            text=f'<tg-emoji emoji-id="5879585266426973039">🌐</tg-emoji> 语言已切换为 {new_name}',
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« 返回主菜单", callback_data="back_to_main")]])
+        )
+
     elif data == "back_to_main":
         await query.answer()
         text = config.START_MESSAGE.replace("\\n", "\n").format(USER=user.mention_html(), BOT_USERNAME=f"@{bot_username}")
@@ -187,8 +215,33 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("manage_group_"):
         await query.answer()
         chat_id = data.split("_")[2]
-        text = '<tg-emoji emoji-id="5931409969613116639">🛡</tg-emoji> <b>群组管理面板</b>\n\n请选择你要设置的功能模块：'
+        title = await t(user_id, "group_manage_panel")
+        text = f'<tg-emoji emoji-id="5931409969613116639">🛡</tg-emoji> <b>{title}</b>\n\n{await t(user_id, "main_menu")}'
         reply_markup = get_group_manage_keyboard(chat_id)
+        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
+
+    elif data.startswith("manage_channel_"):
+        await query.answer()
+        chat_id = data.split("_")[2]
+        try:
+            chat = await context.bot.get_chat(int(chat_id))
+            title = chat.title
+        except Exception:
+            title = "未知频道"
+        dingshi_cnt = await get_dingshi_count(int(chat_id))
+        try:
+            from autobutton import get_autobutton_settings
+            ab = await get_autobutton_settings(int(chat_id))
+            ab_status = '<tg-emoji emoji-id="5776375003280838798">✅</tg-emoji>' if ab["status"] else '<tg-emoji emoji-id="5778527486270770928">❌</tg-emoji>'
+        except Exception:
+            ab_status = '<tg-emoji emoji-id="5778527486270770928">❌</tg-emoji>'
+        text = (
+            f'<tg-emoji emoji-id="5771695636411847302">📢</tg-emoji> <b>{title}</b>\n\n'
+            f'ID: {chat_id}\n'
+            f'<tg-emoji emoji-id="5258419835922030550">⏰</tg-emoji> 定时消息: {dingshi_cnt}\n'
+            f'<tg-emoji emoji-id="5960714428394507968">🔄</tg-emoji> 频道同步: {ab_status}\n'
+        )
+        reply_markup = get_channel_manage_keyboard(chat_id)
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
 
     elif data.startswith("group_verify_"):
@@ -300,6 +353,7 @@ async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_T
         bot_username = config.BOT_USERNAME
     if new_status == ChatMember.ADMINISTRATOR and old_status != ChatMember.ADMINISTRATOR:
         target_panel = "group_panel"
+        chat_title = chat.title or "未命名"
         try:
             if chat.type == Chat.CHANNEL:
                 target_panel = "pindao_panel"
@@ -323,27 +377,23 @@ async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_T
                     break
         except Exception as e:
             pass
+        owner_text = f'<tg-emoji emoji-id="6323440286445867472">⭐️</tg-emoji> 您的{ "频道" if chat.type == Chat.CHANNEL else "群组" } <b>{chat_title}</b> 已成功绑定！点击下方按钮进入私聊管理：'
+        kb = get_private_chat_keyboard(bot_username, target_panel)
+        sent_to_owner = False
         if owner_id:
             try:
-                owner_text = f'<tg-emoji emoji-id="6323440286445867472">⭐️</tg-emoji> 您的频道/群组 <b>{chat.title}</b> 已成功绑定！点击下方按钮进入私聊管理：'
-                await context.bot.send_message(
-                    chat_id=owner_id,
-                    text=owner_text,
-                    parse_mode="HTML",
-                    reply_markup=get_private_chat_keyboard(bot_username, target_panel)
-                )
-            except Exception as e:
+                await context.bot.send_message(chat_id=owner_id, text=owner_text, parse_mode="HTML", reply_markup=kb)
+                sent_to_owner = True
+            except Exception:
                 pass
         try:
-            text = '<tg-emoji emoji-id="6323440286445867472">⭐️</tg-emoji> 我已升级为管理员，已向群主/频道主发送私聊管理面板通知！'
-            msg = await context.bot.send_message(
-                chat_id=chat.id,
-                text=text,
-                parse_mode="HTML",
-                reply_markup=get_private_chat_keyboard(bot_username, target_panel)
-            )
+            if sent_to_owner:
+                pub_text = f'<tg-emoji emoji-id="6323440286445867472">⭐️</tg-emoji> 已向频道主发送私聊管理面板通知！'
+            else:
+                pub_text = f'<tg-emoji emoji-id="6323440286445867472">⭐️</tg-emoji> 无法私聊频道主，请点击下方按钮进入私聊管理（需要先 @{bot_username} 私聊发送 /start）'
+            msg = await context.bot.send_message(chat_id=chat.id, text=pub_text, parse_mode="HTML", reply_markup=kb)
             asyncio.create_task(auto_delete_message(context.bot, chat.id, msg.message_id, 300))
-        except Exception as e:
+        except Exception:
             pass
     elif new_status in [ChatMember.MEMBER, ChatMember.RESTRICTED] and old_status in [ChatMember.LEFT, ChatMember.BANNED]:
         try:
