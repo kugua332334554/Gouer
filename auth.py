@@ -92,11 +92,21 @@ async def perform_verification(context: ContextTypes.DEFAULT_TYPE, chat, user):
     if not settings or not settings.get("status"):
         await send_welcome_message(context, chat, user)
         return
-        
+
     key = (chat.id, user.id)
     if key in PENDING_VERIFICATIONS:
-        logger.info(f"Verification already pending for {user.id} in {chat.id}, skipping duplicate.")
-        return
+        logger.info(f"User {user.id} re-joined while verification pending in {chat.id}, restarting verification.")
+        old_data = PENDING_VERIFICATIONS.pop(key, None)
+        if old_data:
+            old_data["task"].cancel()
+            try:
+                # 私聊验证的消息在私聊里，群内验证在群里
+                del_chat = old_data.get("private_chat_id", chat.id)
+                await context.bot.delete_message(chat_id=del_chat, message_id=old_data["msg_id"])
+            except Exception:
+                pass
+        from database import delete_verification
+        await delete_verification(chat.id, user.id)
         
     try:
         await context.bot.restrict_chat_member(
@@ -127,6 +137,55 @@ async def perform_verification(context: ContextTypes.DEFAULT_TYPE, chat, user):
     keyboard = []
     sent_msg = None
     correct_ans = ""
+    
+    # ── 私聊验证模式：需要群已开启进群审核 ─────────────────
+    if mode == "private":
+        # 检查群是否开启了 Telegram 原生进群审核
+        join_by_request = getattr(chat, 'join_by_request', False)
+        if not join_by_request:
+            logger.info(f"Private verification degraded to button: join_by_request off in {chat.id}")
+            mode = "button"  # 降级为按钮验证
+        else:
+            try:
+                # 尝试发私聊验证消息
+                text = (
+                    f"{shield_emoji} <b>群组验证</b>\n"
+                    f"你正在加入 <b>{chat.title}</b>\n"
+                    f"请在 <b>{duration}</b> 分钟内点击下方按钮完成验证（只有一次机会）："
+                )
+                keyboard = [
+                    [InlineKeyboardButton("点击完成验证", callback_data=f"auth_priv_pass_{user.id}_{chat.id}", style="primary", icon_custom_emoji_id=CHECK_EMOJI_ID)]
+                ]
+                sent_msg = await context.bot.send_message(
+                    chat_id=user.id,
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="HTML"
+                )
+                correct_ans = "pass"
+                
+                # 在群里发一条提示
+                group_tip = await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=f"{shield_emoji} {user_mention} 已加入，验证消息已发送至私聊，请查看。",
+                    parse_mode="HTML"
+                )
+                
+                task = asyncio.create_task(handle_timeout(context, chat.id, user.id, duration, penalty, is_private=True, private_chat_id=user.id))
+                PENDING_VERIFICATIONS[(chat.id, user.id)] = {
+                    "msg_id": sent_msg.message_id,
+                    "task": task,
+                    "correct_ans": correct_ans,
+                    "is_private": True,
+                    "private_chat_id": user.id,
+                    "group_tip_id": group_tip.message_id,
+                }
+                from database import save_verification
+                await save_verification(chat.id, user.id, sent_msg.message_id, correct_ans, duration, penalty)
+                return
+            except Exception as e:
+                logger.warning(f"Private message failed for {user.id}, degrading to button mode: {e}")
+                mode = "button"  # 发不了私聊，降级为按钮验证
     
     if mode == "button":
         text = (
@@ -193,17 +252,39 @@ async def perform_verification(context: ContextTypes.DEFAULT_TYPE, chat, user):
         "task": task,
         "correct_ans": correct_ans
     }
+    from database import save_verification
+    await save_verification(chat.id, user.id, sent_msg.message_id, correct_ans, duration, penalty)
 
-async def handle_timeout(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int, duration: int, penalty: str):
+async def handle_timeout(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int, duration: int, penalty: str, is_private: bool = False, private_chat_id: int = 0):
     await asyncio.sleep(duration * 60)
     key = (chat_id, user_id)
     if key in PENDING_VERIFICATIONS:
         data = PENDING_VERIFICATIONS.pop(key)
+        from database import delete_verification
+        await delete_verification(chat_id, user_id)
+        
+        # 删除验证消息（私聊或群聊）
         try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=data["msg_id"])
+            del_chat = private_chat_id if is_private else chat_id
+            await context.bot.delete_message(chat_id=del_chat, message_id=data["msg_id"])
         except Exception:
             pass
-            
+        
+        # 删除群里的提示消息
+        if is_private:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=data.get("group_tip_id", 0))
+            except Exception:
+                pass
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f'<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji> <a href="tg://user?id={user_id}">用户</a> 私聊验证超时，已处理。',
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
         try:
             if penalty == "kick":
                 await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
@@ -242,6 +323,95 @@ async def auth_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     chat = update.effective_chat
     data = query.data
     
+    # ── 私聊验证回调 ──────────────────────────────────────
+    if data.startswith("auth_priv_"):
+        # 格式: auth_priv_pass_{user_id}_{group_chat_id}
+        parts = data.split("_")
+        action = parts[2]   # "pass"
+        target_user_id = int(parts[3])
+        group_chat_id = int(parts[4])
+        
+        if user.id != target_user_id:
+            await query.answer("⚠️ 这不是属于你的验证按钮！", show_alert=True)
+            return
+        
+        key = (group_chat_id, user.id)
+        if key not in PENDING_VERIFICATIONS:
+            await query.answer("⚠️ 验证已超时或失效！", show_alert=True)
+            return
+        
+        v_info = PENDING_VERIFICATIONS.pop(key)
+        v_info["task"].cancel()
+        from database import delete_verification
+        await delete_verification(group_chat_id, user.id)
+        
+        # 删除私聊验证消息
+        try:
+            await context.bot.delete_message(chat_id=user.id, message_id=v_info["msg_id"])
+        except Exception:
+            pass
+        # 删除群里的提示消息
+        try:
+            await context.bot.delete_message(chat_id=group_chat_id, message_id=v_info.get("group_tip_id", 0))
+        except Exception:
+            pass
+        
+        if user_answer := (action if action == "pass" else None):
+            pass  # private mode only has "pass" action
+        else:
+            user_answer = None
+        
+        if user_answer == v_info["correct_ans"]:
+            try:
+                await context.bot.restrict_chat_member(
+                    chat_id=group_chat_id,
+                    user_id=user.id,
+                    permissions=ChatPermissions(
+                        can_send_messages=True,
+                        can_send_audios=True,
+                        can_send_documents=True,
+                        can_send_photos=True,
+                        can_send_videos=True,
+                        can_send_video_notes=True,
+                        can_send_voice_notes=True,
+                        can_send_polls=True,
+                        can_send_other_messages=True,
+                        can_add_web_page_previews=True
+                    )
+                )
+                await query.answer("✅ 验证成功！欢迎加入！", show_alert=True)
+                # 在群里发欢迎消息
+                try:
+                    group_chat = await context.bot.get_chat(group_chat_id)
+                    await send_welcome_message(context, group_chat, user)
+                except Exception as e:
+                    logger.error(f"send welcome for private verification fail: {e}")
+                # 群内通知
+                try:
+                    user_mention = f'<a href="tg://user?id={user.id}">{user.first_name}</a>'
+                    await context.bot.send_message(
+                        chat_id=group_chat_id,
+                        text=f'<tg-emoji emoji-id="5776375003280838798">✅</tg-emoji> {user_mention} 私聊验证通过，欢迎加入！',
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.error(f"private verification unrestrict fail: {e}")
+                await query.answer("⚠️ 放行失败，请联系管理员", show_alert=True)
+        else:
+            await query.answer("❌ 验证失败！只有一次机会，已被处理！", show_alert=True)
+            settings = await get_verify_settings(group_chat_id)
+            penalty = settings.get("penalty", "mute") if settings else "mute"
+            try:
+                if penalty == "kick":
+                    await context.bot.ban_chat_member(chat_id=group_chat_id, user_id=user.id)
+                    await context.bot.unban_chat_member(chat_id=group_chat_id, user_id=user.id)
+            except Exception as e:
+                logger.error(f"private verification wrong answer penalty fail: {e}")
+        return
+    
+    # ── 群内验证回调 ──────────────────────────────────────
     parts = data.split("_")
     action = parts[1]
     
@@ -256,10 +426,20 @@ async def auth_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         if key in PENDING_VERIFICATIONS:
             v_info = PENDING_VERIFICATIONS.pop(key)
             v_info["task"].cancel()
+            from database import delete_verification
+            await delete_verification(chat.id, target_user_id)
             try:
-                await context.bot.delete_message(chat_id=chat.id, message_id=v_info["msg_id"])
+                # 私聊验证消息可能在私聊里
+                del_chat = v_info.get("private_chat_id", chat.id)
+                await context.bot.delete_message(chat_id=del_chat, message_id=v_info["msg_id"])
             except Exception:
                 pass
+            # 删群内提示
+            if v_info.get("group_tip_id"):
+                try:
+                    await context.bot.delete_message(chat_id=chat.id, message_id=v_info["group_tip_id"])
+                except Exception:
+                    pass
 
         try:
             await context.bot.restrict_chat_member(
@@ -304,7 +484,9 @@ async def auth_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     v_info = PENDING_VERIFICATIONS.pop(key)
     v_info["task"].cancel()
-    
+    from database import delete_verification
+    await delete_verification(chat.id, user.id)
+
     try:
         await context.bot.delete_message(chat_id=chat.id, message_id=v_info["msg_id"])
     except Exception:
