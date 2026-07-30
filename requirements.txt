@@ -1,0 +1,15 @@
+python-telegram-bot[job-queue]
+aiomysql
+httpx
+python-dotenv
+pillow
+cryptography
+fastapi
+uvicorn
+pyotp
+python-jose
+pydantic
+python-multipart
+aiofiles
+qrcode
+pyppeteer
