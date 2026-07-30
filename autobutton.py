@@ -2,6 +2,7 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
 from telegram.ext import ContextTypes
 import database
+from database import validate_column_name
 from lang import t
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ async def update_autobutton_settings(chat_id: int, **kwargs):
                 await cur.execute("INSERT IGNORE INTO channel_autobutton (chat_id) VALUES (%s)", (chat_id,))
                 parts, vals = [], []
                 for k, v in kwargs.items():
-                    parts.append(f"{k}=%s")
+                    parts.append(f"{validate_column_name(k)}=%s")
                     vals.append(v)
                 vals.append(chat_id)
                 await cur.execute(f"UPDATE channel_autobutton SET {', '.join(parts)} WHERE chat_id = %s", vals)
@@ -143,8 +144,8 @@ async def autobutton_callback_handler(update: Update, context: ContextTypes.DEFA
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"ab_panel_{chat_id}")]])
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑自动按钮</b>\n\n'
-            f'格式：<b>颜色（可选）-会员表情ID-文字-链接</b>\n'
-            f'颜色：红色(红) / 绿色(绿) / 蓝色(蓝)\n'
+            f'格式：<b>颜色（可选）-按钮文字-链接</b>\n'
+            f'颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n'
             f'用 <b>&&</b> 分隔同行，<b>换行</b>分行\n\n'
             f'示例：\n<code>蓝色-官方频道-https://t.me/channel</code>\n'
             f'<code>红色-按钮1-https://a.com && 绿色-按钮2-https://b.com</code>\n\n'
