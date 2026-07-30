@@ -2,6 +2,7 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
 from telegram.ext import ContextTypes
 import database
+from database import validate_column_name
 
 logger = logging.getLogger(__name__)
 logger.info("autodelete module loaded")
@@ -38,7 +39,7 @@ async def update_autodelete_settings(chat_id: int, **kwargs):
                 await cur.execute("INSERT IGNORE INTO group_autodelete (chat_id) VALUES (%s)", (chat_id,))
                 parts, vals = [], []
                 for k, v in kwargs.items():
-                    parts.append(f"{k}=%s")
+                    parts.append(f"{validate_column_name(k)}=%s")
                     vals.append(v)
                 vals.append(chat_id)
                 await cur.execute(f"UPDATE group_autodelete SET {', '.join(parts)} WHERE chat_id = %s", vals)
