@@ -36,7 +36,7 @@ from keyboards import (
     get_group_jifen_keyboard
 )
 from dingshi import get_dingshi_count
-from lang import t
+from lang import t, get_user_lang
 from welcome import get_welcome_text, get_welcome_keyboard
 
 logger = logging.getLogger(__name__)
@@ -69,10 +69,21 @@ def get_verification_text(state: dict) -> str:
     )
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 仅私聊
+    if update.effective_chat and update.effective_chat.type != "private":
+        return
     user = update.effective_user
-    await save_user(user.id, user.username, user.first_name)
+    # 通过 get_chat 拉取完整用户信息（包括 bio）
     try:
-        bot_info = await context.bot.get_me()
+        chat = await context.bot.get_chat(user.id)
+        last_name = chat.last_name or ""
+        bio = chat.bio or ""
+    except Exception:
+        last_name = user.last_name or ""
+        bio = ""
+    await save_user(user.id, user.username, user.first_name, last_name, bio)
+    try:
+        bot_info = await config.get_me(context.bot)
         bot_username = bot_info.username
     except Exception:
         bot_username = config.BOT_USERNAME
@@ -81,21 +92,45 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         param = args[0]
         if param == "group_panel":
             groups = await get_all_groups()
-            text = config.ADD_QUN.replace("\\n", "\n").format(BOT_USERNAME=f"@{bot_username}")
-            reply_markup = get_pagination_keyboard(groups, page=1, item_type="group", bot_username=bot_username, per_page=5)
+            my_groups = []
+            for chat_id, title in groups:
+                try:
+                    member = await context.bot.get_chat_member(chat_id, user.id)
+                    if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
+                        my_groups.append((chat_id, title))
+                except Exception:
+                    pass
+            if not my_groups:
+                ulang = await get_user_lang(user.id)
+                text = await t(user.id, "add_qun", BOT_USERNAME=f"@{bot_username}")
+                await update.message.reply_html(text=text, reply_markup=get_add_group_keyboard(bot_username, ulang))
+                return
+            text = await t(user.id, "add_qun", BOT_USERNAME=f"@{bot_username}")
+            reply_markup = get_pagination_keyboard(my_groups, page=1, item_type="group", bot_username=bot_username, per_page=5)
             await update.message.reply_html(text=text, reply_markup=reply_markup)
             return
         elif param == "pindao_panel":
             channels = await get_all_channels()
-            text = config.ADD_PIDANO.replace("\\n", "\n").format(BOT_USERNAME=f"@{bot_username}")
-            reply_markup = get_pagination_keyboard(channels, page=1, item_type="channel", bot_username=bot_username, per_page=5)
+            my_channels = []
+            for chat_id, title in channels:
+                try:
+                    member = await context.bot.get_chat_member(chat_id, user.id)
+                    if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
+                        my_channels.append((chat_id, title))
+                except Exception:
+                    pass
+            if not my_channels:
+                ulang = await get_user_lang(user.id)
+                text = await t(user.id, "add_pindao", BOT_USERNAME=f"@{bot_username}")
+                await update.message.reply_html(text=text, reply_markup=get_add_channel_keyboard(bot_username, ulang))
+                return
+            text = await t(user.id, "add_pindao", BOT_USERNAME=f"@{bot_username}")
+            reply_markup = get_pagination_keyboard(my_channels, page=1, item_type="channel", bot_username=bot_username, per_page=5)
             await update.message.reply_html(text=text, reply_markup=reply_markup)
             return
-    text = config.START_MESSAGE.replace("\\n", "\n").format(
-        USER=user.mention_html(),
-        BOT_USERNAME=f"@{bot_username}"
-    )
-    await update.message.reply_html(text=text, reply_markup=get_start_keyboard())
+    ulang = await get_user_lang(user.id)
+    text = await t(user.id, "start_message", USER=user.mention_html(), BOT_USERNAME=f"@{bot_username}")
+    await update.message.reply_html(text=text, reply_markup=get_start_keyboard(ulang))
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -103,7 +138,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     data = query.data
     try:
-        bot_info = await context.bot.get_me()
+        bot_info = await config.get_me(context.bot)
         bot_username = bot_info.username
     except Exception:
         bot_username = config.BOT_USERNAME
@@ -113,7 +148,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_id = int(parts[2])
         chat_id = int(parts[3])
         if not await _check_admin(update, context):
-            await query.answer(f"{EMOJI_WARN} 只有管理员才能执行此操作。", show_alert=True)
+            await query.answer(f"⚠️ 只有管理员才能执行此操作。", show_alert=True)
             return
         try:
             await context.bot.restrict_chat_member(
@@ -133,27 +168,53 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             )
             await log_group_action(chat_id, target_id, "unmute_by_btn")
-            await query.answer(f"{EMOJI_SUCCESS} 已解除禁言。", show_alert=True)
+            await query.answer(f"✅ 已解除禁言。", show_alert=True)
             await query.edit_message_text(
                 text=f"{EMOJI_SUCCESS} 用户已由管理员 {user.mention_html()} 手动解禁。",
                 parse_mode="HTML"
             )
         except Exception as e:
-            await query.answer(f"{EMOJI_ERROR} 解禁失败: {e}", show_alert=True)
+            await query.answer(f"❌ 解禁失败: {e}", show_alert=True)
         return
 
     if data == "channel":
         await query.answer()
         channels = await get_all_channels()
-        text = config.ADD_PIDANO.replace("\\n", "\n").format(BOT_USERNAME=f"@{bot_username}")
-        reply_markup = get_pagination_keyboard(channels, page=1, item_type="channel", bot_username=bot_username, per_page=5)
+        my_channels = []
+        for chat_id, title in channels:
+            try:
+                member = await context.bot.get_chat_member(chat_id, user.id)
+                if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
+                    my_channels.append((chat_id, title))
+            except Exception:
+                pass
+        if not my_channels:
+            ulang = await get_user_lang(user_id)
+            text = await t(user_id, "add_pindao", BOT_USERNAME=f"@{bot_username}")
+            await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=get_add_channel_keyboard(bot_username, ulang))
+            return
+        text = await t(user.id, "add_pindao", BOT_USERNAME=f"@{bot_username}")
+        reply_markup = get_pagination_keyboard(my_channels, page=1, item_type="channel", bot_username=bot_username, per_page=5)
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
 
     elif data == "group":
         await query.answer()
         groups = await get_all_groups()
-        text = config.ADD_QUN.replace("\\n", "\n").format(BOT_USERNAME=f"@{bot_username}")
-        reply_markup = get_pagination_keyboard(groups, page=1, item_type="group", bot_username=bot_username, per_page=5)
+        my_groups = []
+        for chat_id, title in groups:
+            try:
+                member = await context.bot.get_chat_member(chat_id, user.id)
+                if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
+                    my_groups.append((chat_id, title))
+            except Exception:
+                pass
+        if not my_groups:
+            ulang = await get_user_lang(user_id)
+            text = await t(user_id, "add_qun", BOT_USERNAME=f"@{bot_username}")
+            await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=get_add_group_keyboard(bot_username, ulang))
+            return
+        text = await t(user.id, "add_qun", BOT_USERNAME=f"@{bot_username}")
+        reply_markup = get_pagination_keyboard(my_groups, page=1, item_type="group", bot_username=bot_username, per_page=5)
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
 
     elif data.startswith("page_"):
@@ -162,24 +223,24 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         page = int(page_str)
         if item_type == "group":
             items = await get_all_groups()
-            text = config.ADD_QUN.replace("\\n", "\n").format(BOT_USERNAME=f"@{bot_username}")
+            text = await t(user.id, "add_qun", BOT_USERNAME=f"@{bot_username}")
         else:
             items = await get_all_channels()
-            text = config.ADD_PIDANO.replace("\\n", "\n").format(BOT_USERNAME=f"@{bot_username}")
+            text = await t(user.id, "add_pindao", BOT_USERNAME=f"@{bot_username}")
         reply_markup = get_pagination_keyboard(items, page=page, item_type=item_type, bot_username=bot_username, per_page=5)
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
 
     elif data == "timezone":
         await query.answer()
         current_tz = await get_user_timezone(user_id)
-        text = config.TIMEZONE_MESSAGE.replace("\\n", "\n").format(TIMEZONE=current_tz)
+        text = await t(user_id, "timezone_message", TIMEZONE=current_tz)
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=get_timezone_keyboard())
 
     elif data.startswith("tz_"):
         new_tz = data.replace("tz_", "")
         await update_user_timezone(user_id, new_tz)
         await query.answer(f"时区已更新为: {new_tz}", show_alert=True)
-        text = config.TIMEZONE_MESSAGE.replace("\\n", "\n").format(TIMEZONE=new_tz)
+        text = await t(user_id, "timezone_message", TIMEZONE=new_tz)
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=get_timezone_keyboard())
 
     elif data == "changelang":
@@ -207,14 +268,56 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« 返回主菜单", callback_data="back_to_main")]])
         )
 
+    elif data == "clone" or data.startswith("clone_"):
+        import os as _os
+        if _os.getenv("BOT_IS_CHILD") == "1":
+            await query.answer()
+            await query.edit_message_text(
+                text=f"{EMOJI_WARN} <b>下级 Bot 不支持克隆和高级版功能。</b>",
+                parse_mode="HTML"
+            )
+            return
+        from clone import clone_callback_handler
+        await clone_callback_handler(update, context)
+        return
+
+    elif data == "pro":
+        import os as _os
+        if _os.getenv("BOT_IS_CHILD") == "1":
+            await query.answer()
+            await query.edit_message_text(
+                text=f"{EMOJI_WARN} <b>下级 Bot 不支持克隆和高级版功能。</b>",
+                parse_mode="HTML"
+            )
+            return
+        await query.answer()
+        from payment import EMOJI_DIAMOND, EMOJI_CROWN
+        text = (
+            f'<tg-emoji emoji-id="{EMOJI_DIAMOND}">💎</tg-emoji> <b>高级版</b>\n\n'
+            f'AI 群聊和名片功能需按月订阅。\n\n'
+            f'点击下方按钮，选择要管理的群组，\n'
+            f'在 AI / 名片设置面板中购买订阅。'
+        )
+        from keyboards import get_pro_keyboard
+        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=get_pro_keyboard(user_id))
+
     elif data == "back_to_main":
         await query.answer()
-        text = config.START_MESSAGE.replace("\\n", "\n").format(USER=user.mention_html(), BOT_USERNAME=f"@{bot_username}")
-        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=get_start_keyboard())
+        ulang = await get_user_lang(user_id)
+        text = await t(user_id, "start_message", USER=user.mention_html(), BOT_USERNAME=f"@{bot_username}")
+        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=get_start_keyboard(ulang))
 
     elif data.startswith("manage_group_"):
         await query.answer()
         chat_id = data.split("_")[2]
+        try:
+            member = await context.bot.get_chat_member(int(chat_id), user.id)
+            if member.status not in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
+                await query.answer("⚠️ 你不是该群组的管理员！", show_alert=True)
+                return
+        except Exception:
+            await query.answer("⚠️ 无法验证权限", show_alert=True)
+            return
         title = await t(user_id, "group_manage_panel")
         text = f'<tg-emoji emoji-id="5931409969613116639">🛡</tg-emoji> <b>{title}</b>\n\n{await t(user_id, "main_menu")}'
         reply_markup = get_group_manage_keyboard(chat_id)
@@ -223,6 +326,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("manage_channel_"):
         await query.answer()
         chat_id = data.split("_")[2]
+        try:
+            member = await context.bot.get_chat_member(int(chat_id), user.id)
+            if member.status not in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
+                await query.answer("⚠️ 你不是该频道的管理员！", show_alert=True)
+                return
+        except Exception:
+            await query.answer("⚠️ 无法验证权限", show_alert=True)
+            return
         try:
             chat = await context.bot.get_chat(int(chat_id))
             title = chat.title
@@ -246,15 +357,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("group_verify_"):
         await query.answer()
-        chat_id = data.split("_")[2]
+        chat_id = int(data.split("_")[2])
         current_state = await get_verify_settings(chat_id)
         text = get_verification_text(current_state)
-        reply_markup = get_group_verification_keyboard(chat_id, current_state)
+        reply_markup = get_group_verification_keyboard(str(chat_id), current_state)
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
 
     elif data.startswith("group_welcome_"):
         await query.answer()
-        chat_id = data.split("_")[2]
+        chat_id = int(data.split("_")[2])
         welcome_state = await get_welcome_settings(int(chat_id))
         text = get_welcome_text(welcome_state)
         reply_markup = get_welcome_keyboard(chat_id, welcome_state)
@@ -262,8 +373,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("group_jifen_"):
         await query.answer()
-        chat_id = data.split("_")[2]
-        current_state = await get_points_settings(int(chat_id))
+        chat_id = int(data.split("_")[2])
+        current_state = await get_points_settings(chat_id)
         status_text = f'{EMOJI_SUCCESS} 开启' if current_state['status'] else f'{EMOJI_ERROR} 关闭'
         del_time = current_state.get('delete_time', 0)
         del_text = "不删除" if del_time == 0 else f"{del_time} 秒"
@@ -282,7 +393,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = data.split("_")
         setting_type = parts[2]
         setting_value = parts[3]
-        chat_id = parts[4]
+        chat_id = int(parts[4])
         current_state = await get_verify_settings(chat_id)
         if setting_type == "status":
             current_state["status"] = True if setting_value == "1" else False
@@ -347,7 +458,7 @@ async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_T
     new_status = my_chat_member.new_chat_member.status
     chat = my_chat_member.chat
     try:
-        bot_info = await context.bot.get_me()
+        bot_info = await config.get_me(context.bot)
         bot_username = bot_info.username
     except Exception:
         bot_username = config.BOT_USERNAME
@@ -412,17 +523,78 @@ async def group_to_supergroup_handler(update: Update, context: ContextTypes.DEFA
     message = update.message
     if not message or not message.migrate_to_chat_id:
         return
+    old_chat_id = message.chat_id
     new_chat_id = message.migrate_to_chat_id
     try:
         new_chat = await context.bot.get_chat(new_chat_id)
         member = await context.bot.get_chat_member(new_chat_id, context.bot.id)
         if member.status == ChatMember.ADMINISTRATOR:
             await register_supergroup(new_chat_id, new_chat.title, new_chat.username, "supergroup")
-            text = '<tg-emoji emoji-id="6323440286445867472">⭐️</tg-emoji> 群组已升级为超级群组，独立数据库表更新完成！'
+            # 迁移旧群配置到新 chat_id（群升级后 chat_id 改变）
+            await _migrate_group_settings(old_chat_id, new_chat_id)
+            text = '<tg-emoji emoji-id="6323440286445867472">⭐️</tg-emoji> 群组已升级为超级群组，历史配置已迁移！'
             msg = await context.bot.send_message(chat_id=new_chat_id, text=text, parse_mode="HTML")
             asyncio.create_task(auto_delete_message(context.bot, new_chat_id, msg.message_id, 300))
     except Exception as e:
         pass
+
+
+async def _migrate_group_settings(old_chat_id: int, new_chat_id: int):
+    """群组升级为超级群后，将旧 chat_id 的配置迁移到新 chat_id。"""
+    import database as db
+    tables_to_migrate = [
+        # (table_name, id_column, is_single_row)
+        ("group_settings", "chat_id", True),
+        ("group_welcome", "chat_id", True),
+        ("group_points_settings", "chat_id", True),
+        ("group_night", "chat_id", True),
+        ("group_ai", "chat_id", True),
+        ("group_card", "chat_id", True),
+        ("group_autodelete", "chat_id", True),
+        ("group_permission", "chat_id", True),
+        ("group_antispam", "chat_id", True),
+        ("group_toggle", "chat_id", True),
+        ("group_message_check", "chat_id", True),
+        ("group_choujiang_settings", "chat_id", True),
+    ]
+    try:
+        from database import _validate_table_name as _vtn
+        async with db.db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                for table, id_col, _ in tables_to_migrate:
+                    _vtn(table)  # 安全校验表名
+                    # 获取旧配置
+                    await cur.execute(f"SELECT * FROM `{_vtn(table)}` WHERE `{id_col}` = %s", (old_chat_id,))
+                    old_row = await cur.fetchone()
+                    if not old_row:
+                        continue
+                    # 获取列名
+                    await cur.execute(f"DESCRIBE `{table}`")
+                    columns = [r[0] for r in await cur.fetchall()]
+                    # 替换 chat_id 为新的
+                    new_row = list(old_row)
+                    try:
+                        idx = columns.index(id_col)
+                        new_row[idx] = new_chat_id
+                    except ValueError:
+                        pass
+                    placeholders = ", ".join(["%s"] * len(new_row))
+                    cols = ", ".join(f"`{c}`" for c in columns)
+                    await cur.execute(
+                        f"INSERT INTO `{table}` ({cols}) VALUES ({placeholders}) "
+                        f"ON DUPLICATE KEY UPDATE " +
+                        ", ".join(f"`{c}`=VALUES(`{c}`)" for c in columns if c != id_col),
+                        new_row)
+                # 迁移多行表：违禁词、定时消息、抽奖
+                for table, id_col in [("group_weijinci", "chat_id"),
+                                       ("group_dingshi", "chat_id"),
+                                       ("group_choujiang", "chat_id"),
+                                       ("group_kuaisufabu", "creator_id")]:
+                    await cur.execute(f"UPDATE `{_vtn(table)}` SET `{id_col}` = %s WHERE `{id_col}` = %s",
+                                      (new_chat_id, old_chat_id))
+                logger.info(f"migrated group settings from {old_chat_id} to {new_chat_id}")
+    except Exception as e:
+        logger.error(f"migrate_group_settings err: {e}")
 
 def parse_time_duration(arg: str) -> int:
     arg = arg.strip().lower()
@@ -446,34 +618,46 @@ def parse_time_duration(arg: str) -> int:
 async def _get_target_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     target_user = None
+
+    # 1) 回复消息 → 取被回复者
     if message.reply_to_message:
         target_user = message.reply_to_message.from_user
+        if target_user:
+            return target_user
+
+    # 2) 从消息 entities 提取 text_mention（携带完整 user 对象）
+    if message.entities:
+        for ent in message.entities:
+            if ent.type == "text_mention" and ent.user:
+                return ent.user
+
+    # 3) 从参数中解析
+    args = context.args
+    if not args:
+        return None
+    mention = args[0]
+    chat = update.effective_chat
+
+    if mention.startswith('@'):
+        username = mention[1:]
+        # 查数据库 users 表
+        from database import get_user_id_by_username
+        user_id = await get_user_id_by_username(username)
+        if user_id:
+            try:
+                member = await context.bot.get_chat_member(chat.id, user_id)
+                return member.user
+            except Exception:
+                pass
     else:
-        args = context.args
-        if args:
-            mention = args[0]
-            if mention.startswith('@'):
-                username = mention[1:]
-                try:
-                    chat = update.effective_chat
-                    members = await context.bot.get_chat_administrators(chat.id)
-                    for m in members:
-                        if m.user.username and m.user.username.lower() == username.lower():
-                            target_user = m.user
-                            break
-                    if not target_user:
-                        target_user = await context.bot.get_chat_member(chat.id, username)
-                        target_user = target_user.user
-                except Exception:
-                    pass
-            else:
-                try:
-                    user_id = int(mention)
-                    target_user = await context.bot.get_chat_member(update.effective_chat.id, user_id)
-                    target_user = target_user.user
-                except Exception:
-                    pass
-    return target_user
+        try:
+            user_id = int(mention)
+            member = await context.bot.get_chat_member(chat.id, user_id)
+            return member.user
+        except Exception:
+            pass
+
+    return None
 
 async def _check_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -493,7 +677,7 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     target = await _get_target_user(update, context)
     if not target:
-        await update.message.reply_html(f"{EMOJI_WARN} 请回复目标用户或 @提及。")
+        await update.message.reply_html(f"{EMOJI_WARN} 找不到该用户。请回复他的消息、@他（需在群里发过言），或直接发用户ID。")
         return
     duration = None
     if context.args:
@@ -527,7 +711,7 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     target = await _get_target_user(update, context)
     if not target:
-        await update.message.reply_html(f"{EMOJI_WARN} 请回复目标用户或 @提及。")
+        await update.message.reply_html(f"{EMOJI_WARN} 找不到该用户。请回复他的消息、@他（需在群里发过言），或直接发用户ID。")
         return
     try:
         await context.bot.restrict_chat_member(
@@ -559,7 +743,7 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     target = await _get_target_user(update, context)
     if not target:
-        await update.message.reply_html(f"{EMOJI_WARN} 请回复目标用户或 @提及。")
+        await update.message.reply_html(f"{EMOJI_WARN} 找不到该用户。请回复他的消息、@他（需在群里发过言），或直接发用户ID。")
         return
     duration = None
     if context.args:
@@ -587,7 +771,7 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     target = await _get_target_user(update, context)
     if not target:
-        await update.message.reply_html(f"{EMOJI_WARN} 请回复目标用户或 @提及。")
+        await update.message.reply_html(f"{EMOJI_WARN} 找不到该用户。请回复他的消息、@他（需在群里发过言），或直接发用户ID。")
         return
     try:
         await context.bot.unban_chat_member(chat_id=update.effective_chat.id, user_id=target.id)
@@ -604,7 +788,7 @@ async def kick_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     target = await _get_target_user(update, context)
     if not target:
-        await update.message.reply_html(f"{EMOJI_WARN} 请回复目标用户或 @提及。")
+        await update.message.reply_html(f"{EMOJI_WARN} 找不到该用户。请回复他的消息、@他（需在群里发过言），或直接发用户ID。")
         return
     try:
         await context.bot.ban_chat_member(chat_id=update.effective_chat.id, user_id=target.id)

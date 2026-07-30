@@ -18,8 +18,6 @@ LIST_EMOJI = "5258477770735885832"
 GOLD_EMOJI = "5440539497383087970"
 ALERT_EMOJI = "5220214598585568818"
 RED_DOT_EMOJI = "4926956800005112527"
-
-# 反外挂状态: chat_id → {question, answer, start_time, clicks: {user_id: (ts, name)}, msg_id}
 _active_tests = {}
 
 
@@ -27,21 +25,18 @@ def _generate_question():
     a = random.randint(1, 20)
     b = random.randint(1, 20)
     answer = a + b
-    # 生成5个错误答案
     wrongs = set()
     while len(wrongs) < 5:
         w = answer + random.choice([-3, -2, -1, 1, 2, 3, 4, 5])
         if w != answer and w >= 0 and w not in wrongs:
             wrongs.add(w)
     wrongs = list(wrongs)
-    # 随机排列，正确答案混入其中
     options = wrongs + [answer]
     random.shuffle(options)
     return a, b, answer, options
 
 
 async def check_anti_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """检测「测挂」关键词"""
     msg = update.message
     chat = update.effective_chat
     if not msg or not msg.text or not chat:
@@ -196,6 +191,7 @@ async def _finish_test(context, chat_id, msg_id):
     answer = test["answer"]
     clicks = test["clicks"]  # {uid: (elapsed_sec, name, is_correct)}
 
+    # 分类：正确真人、错误真人、外挂嫌疑
     legit = []    # 正确 + >=1s
     wrong = []     # 错误 + >=1s
     suspects = []  # <1s（无论对错）
@@ -243,6 +239,7 @@ async def _finish_test(context, chat_id, msg_id):
 
     result_text = "\n".join(lines)
 
+    # 构建封禁按钮
     kb = []
     if suspects:
         kb.append([InlineKeyboardButton(
@@ -280,6 +277,7 @@ _pending_bans = {}
 
 
 async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理封禁按钮"""
     query = update.callback_query
     data = query.data
     if not data.startswith("atb_ban"):
@@ -323,6 +321,7 @@ async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception as e:
             await query.answer(f"封禁失败: {e}", show_alert=True)
 
+    # 更新按钮
     suspects = _pending_bans.get(chat_id, [])
     kb = []
     if suspects:

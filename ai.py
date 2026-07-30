@@ -50,22 +50,26 @@ PENALTY_OPTIONS = {"delete": "仅删除", "mute_1h": "禁言1小时", "kick": "�
 
 
 def parse_triggers(trigger_str: str) -> list:
+    """Parse comma-separated trigger words into a list, stripping whitespace and empty entries."""
     if not trigger_str or not trigger_str.strip():
         return []
     return [t.strip() for t in trigger_str.split(",") if t.strip()]
 
 
 def join_triggers(triggers: list) -> str:
+    """Join trigger words list back to comma-separated string."""
     return ", ".join(triggers)
 
 
 def message_has_trigger(text: str, triggers: list) -> bool:
+    """Check if text starts with any of the trigger words."""
     if not triggers:
         return False
     return any(text.startswith(t) for t in triggers)
 
 
 def get_triggered_prompt(text: str, triggers: list) -> tuple:
+    """Return (matched_trigger, remaining_prompt) or (None, None)."""
     if not triggers:
         return None, None
     for t in sorted(triggers, key=len, reverse=True):
@@ -306,6 +310,7 @@ async def ai_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
+
 async def _re_async_sub(pattern, replacer, text):
     import re as _re
     result = []
@@ -346,7 +351,6 @@ async def _send_rich_reply(msg, text: str, chat_id: int, context):
             except Exception:
                 pass
             clean = clean.replace(m.group(0), "", 1)
-    # 再发贴纸 {tz:emoji} 或 {tz}
     for m in _re.finditer(r"\{tz(?::([^}]*))?\}", text):
         emoji = (m.group(1) or "").strip()
         file_id = await database.get_sticker_by_emoji(emoji) if emoji else ""
@@ -361,7 +365,6 @@ async def _send_rich_reply(msg, text: str, chat_id: int, context):
     return clean.strip()
 
 
-# ── 贴纸收集 ──────────────────────────────────────
 
 async def _try_collect_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message or (update.channel_post if hasattr(update, 'channel_post') else None)
@@ -394,7 +397,7 @@ async def _try_collect_sticker(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def ai_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    # 贴纸收
+    # 贴纸收集（仅私聊所有者）
     if msg:
         await _try_collect_sticker(update, context)
     if not msg or not msg.text:
@@ -479,8 +482,9 @@ async def ai_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"AI chat exception: {e}")
 
-# /r command
+
 async def r_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """群主/管理员设置 AI 规则: /r 规则内容"""
     msg = update.message
     chat = update.effective_chat
     user = update.effective_user
@@ -509,8 +513,9 @@ async def r_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_html(f"{EMOJI_ERROR} 添加失败。")
     logger.info(f"r_command: chat={chat.id}, user={user.id}, rule={rule_text[:50]}")
 
-# dl command
+
 async def dl_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """群主/管理员删除 AI 规则: /dl 1"""
     msg = update.message
     chat = update.effective_chat
     user = update.effective_user

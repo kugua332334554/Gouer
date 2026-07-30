@@ -1,5 +1,5 @@
 import logging
-from database import db_pool
+import database
 
 logger = logging.getLogger(__name__)
 
@@ -9,15 +9,67 @@ T = {
         "channel_btn": "频道",
         "group_btn": "群组",
         "post_fast_btn": "快速发帖",
+        "pro_btn": "高级版",
+        "clone_btn": "克隆",
+        "timezone_btn": "时区",
+        "language_btn": "语言",
+        "help_channel_btn": "帮助频道",
+        "add_channel_btn": "添加频道",
+        "add_group_btn": "添加群组",
+        "private_manage_btn": "进入私聊管理",
+        "prev_page": "上一页",
+        "next_page": "下一页",
+        "dingshi_btn": "定时消息",
+        "autobutton_btn": "自动按钮",
+        "permission_btn": "控制权限",
+        "autodelete_btn": "自动删除",
+        "back_channel_list": "返回频道列表",
+        "back_group_list": "返回群组列表",
+        "verify_btn": "进群验证",
+        "welcome_btn": "进群欢迎",
+        "points_btn": "积分管理",
+        "censor_btn": "违禁词",
+        "night_btn": "夜间模式",
+        "lottery_btn": "抽奖",
+        "card_btn": "名片系统",
+        "ai_btn": "AI 助手",
+        "back_group_manage": "返回群组管理",
+        "status_label": "状态:",
+        "enable_btn": "开启",
+        "disable_btn": "关闭",
+        "mode_label": "模式:",
+        "button_mode": "按钮模式",
+        "math_mode": "数学题",
+        "captcha_mode": "验证码",
+        "verify_dur_label": "验证时长:",
+        "1_minute": "1分钟",
+        "5_minutes": "5分钟",
+        "10_minutes": "10分钟",
+        "timeout_pen_label": "超时惩罚:",
+        "mute_penalty": "禁言",
+        "kick_penalty": "踢出",
+        "func_status_label": "功能状态:",
+        "points_per_msg_label": "每条消息积分:",
+        "0_points": "0分",
+        "1_point": "1分",
+        "2_points": "2分",
+        "5_points": "5分",
+        "filter_stickers_label": "过滤贴纸:",
+        "checkin_del_label": "签到消息删除:",
+        "no_delete": "不删",
+        "10_seconds": "10秒",
+        "30_seconds": "30秒",
         "timezone_btn": "时区",
         "language_btn": "语言",
         "help_btn": "帮助频道",
         "back_main": "返回主菜单",
         "back": "返回",
+        "back_list": "返回列表",
         "cancel": "取消",
         "confirm": "确认",
         "save": "保存",
         "delete": "删除",
+        "delete_short": "删",
         "edit": "修改",
         "add": "添加",
         "enable": "开启",
@@ -26,10 +78,34 @@ T = {
         "off": "关",
         "skip": "跳过此步",
         "clear": "清空",
+        "clear_media": "清空媒体",
         "preview": "预览消息",
         "share": "分享",
         "status": "状态",
         "type": "类型",
+        "name_label": "名称:",
+        "keyword_label": "关键词:",
+        "text_label": "文本:",
+        "media_label": "媒体:",
+        "btn_label": "按钮:",
+        "inline_usage": "内联用法：",
+        "edit_text_btn": "修改文本",
+        "edit_media_btn": "修改媒体",
+        "edit_btn_btn": "修改按钮",
+        "edit_info_btn": "修改信息",
+        "close_btn": "关闭",
+        "open_btn": "开启",
+        "del_msg_label": "删除消息(分钟)",
+        "del_last_btn": "删除上一条",
+        "ai_chat_label": "AI聊天:",
+        "ai_trigger_label": "触发词:",
+        "ai_set_prompt_btn": "设置提示词",
+        "ai_audit_label": "AI审计:",
+        "ai_penalty_label": "审计处罚:",
+        "ai_delete_only": "仅删除",
+        "ai_mute_1h": "禁言1小时",
+        "ai_kick": "踢出",
+        "ai_ban": "封禁",
         "unknown": "未知",
         "error": "出错了",
         "success": "操作成功",
@@ -166,6 +242,11 @@ T = {
         "autobtn_disabled": "已关闭",
         "autobtn_edit": "编辑按钮",
         "autobtn_empty": "未设置",
+        "start_message": '<tg-emoji emoji-id="5203948303305158848">🍷</tg-emoji>嗨，{USER} !\n\n<tg-emoji emoji-id="5929192117220937925">⭐️</tg-emoji>{BOT_USERNAME} 能帮你便捷安全地管理频道和群组，是TG上领先的管理的机器人之一！\n\n<tg-emoji emoji-id="5866185084427572234">🤖</tg-emoji>请赋予我频道/群组管理员权限！',
+        "add_pindao": '<tg-emoji emoji-id="5323476770706432095">📍</tg-emoji> 指南\n\n想要在频道中使用 {BOT_USERNAME} 的功能，只需把这个机器人添加到您的频道并授予发送消息等权限。\n\n<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji> 注意: 如果把这个Bot添加到频道后没有来自这个机器人任何通知，您需要删除并重新添加Bot为管理员。',
+        "add_qun": '<tg-emoji emoji-id="5323476770706432095">📍</tg-emoji> 指南\n\n想要在群组中使用 {BOT_USERNAME} 的功能，只需把这个机器人添加到您的群组并授予管理消息等权限。\n\n<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji> 注意: 如果把这个Bot添加到群组后没有来自这个机器人任何通知，您需要删除并重新添加Bot为管理员。',
+        "choose_lang": '<tg-emoji emoji-id="5879585266426973039">🌐</tg-emoji> 选择语言\n\n当前语言：{LANG}\n\nSelect your language:',
+        "timezone_message": '<tg-emoji emoji-id="5258419835922030550">🕒</tg-emoji> 设置时区\n\n当前时区：<b>{TIMEZONE}</b>\n\n选择你的时区：',
     },
     "zh-TW": {
         "main_menu": "請選擇功能：",
@@ -177,10 +258,12 @@ T = {
         "help_btn": "幫助頻道",
         "back_main": "返回主選單",
         "back": "返回",
+        "back_list": "返回列表",
         "cancel": "取消",
         "confirm": "確認",
         "save": "儲存",
         "delete": "刪除",
+        "delete_short": "刪",
         "edit": "修改",
         "add": "新增",
         "enable": "開啟",
@@ -189,10 +272,34 @@ T = {
         "off": "關",
         "skip": "跳過此步驟",
         "clear": "清除",
+        "clear_media": "清除媒體",
         "preview": "預覽訊息",
         "share": "分享",
         "status": "狀態",
         "type": "類型",
+        "name_label": "名稱:",
+        "keyword_label": "關鍵詞:",
+        "text_label": "文字:",
+        "media_label": "媒體:",
+        "btn_label": "按鈕:",
+        "inline_usage": "內聯用法：",
+        "edit_text_btn": "修改文字",
+        "edit_media_btn": "修改媒體",
+        "edit_btn_btn": "修改按鈕",
+        "edit_info_btn": "修改資訊",
+        "close_btn": "關閉",
+        "open_btn": "開啟",
+        "del_msg_label": "刪除訊息(分鐘)",
+        "del_last_btn": "刪除上一條",
+        "ai_chat_label": "AI聊天:",
+        "ai_trigger_label": "觸發詞:",
+        "ai_set_prompt_btn": "設定提示詞",
+        "ai_audit_label": "AI審計:",
+        "ai_penalty_label": "審計處罰:",
+        "ai_delete_only": "僅刪除",
+        "ai_mute_1h": "禁言1小時",
+        "ai_kick": "踢出",
+        "ai_ban": "封禁",
         "unknown": "未知",
         "error": "發生錯誤",
         "success": "操作成功",
@@ -329,6 +436,11 @@ T = {
         "autobtn_disabled": "已關閉",
         "autobtn_edit": "編輯按鈕",
         "autobtn_empty": "未設定",
+        "start_message": '<tg-emoji emoji-id="5203948303305158848">🍷</tg-emoji>嗨，{USER} !\n\n<tg-emoji emoji-id="5929192117220937925">⭐️</tg-emoji>{BOT_USERNAME} 能幫助你便捷安全地管理頻道和群組，是TG上領先的管理機器人之一！\n\n<tg-emoji emoji-id="5866185084427572234">🤖</tg-emoji>請賦予我頻道/群組管理員權限！',
+        "add_pindao": '<tg-emoji emoji-id="5323476770706432095">📍</tg-emoji> 指南\n\n想要在頻道中使用 {BOT_USERNAME} 的功能，只需把這個機器人添加到您的頻道並授予發送訊息等權限。\n\n<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji> 注意: 如果把這個Bot添加到頻道後沒有來自這個機器人的任何通知，您需要刪除並重新添加Bot為管理員。',
+        "add_qun": '<tg-emoji emoji-id="5323476770706432095">📍</tg-emoji> 指南\n\n想要在群組中使用 {BOT_USERNAME} 的功能，只需把這個機器人添加到您的群組並授予管理訊息等權限。\n\n<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji> 注意: 如果把這個Bot添加到群組後沒有來自這個機器人的任何通知，您需要刪除並重新添加Bot為管理員。',
+        "choose_lang": '<tg-emoji emoji-id="5879585266426973039">🌐</tg-emoji> 選擇語言\n\n當前語言：{LANG}\n\nSelect your language:',
+        "timezone_message": '<tg-emoji emoji-id="5258419835922030550">🕒</tg-emoji> 設定時區\n\n當前時區：<b>{TIMEZONE}</b>\n\n選擇你的時區：',
     },
     "en": {
         "main_menu": "Select a function:",
@@ -340,10 +452,12 @@ T = {
         "help_btn": "Help Channel",
         "back_main": "Back to Main Menu",
         "back": "Back",
+        "back_list": "Back to List",
         "cancel": "Cancel",
         "confirm": "Confirm",
         "save": "Save",
         "delete": "Delete",
+        "delete_short": "Del",
         "edit": "Edit",
         "add": "Add",
         "enable": "Enable",
@@ -352,10 +466,34 @@ T = {
         "off": "Off",
         "skip": "Skip",
         "clear": "Clear",
+        "clear_media": "Clear Media",
         "preview": "Preview",
         "share": "Share",
         "status": "Status",
         "type": "Type",
+        "name_label": "Name:",
+        "keyword_label": "Keyword:",
+        "text_label": "Text:",
+        "media_label": "Media:",
+        "btn_label": "Buttons:",
+        "inline_usage": "Inline:",
+        "edit_text_btn": "Edit Text",
+        "edit_media_btn": "Edit Media",
+        "edit_btn_btn": "Edit Buttons",
+        "edit_info_btn": "Edit Info",
+        "close_btn": "Close",
+        "open_btn": "Open",
+        "del_msg_label": "Delete Msg (min)",
+        "del_last_btn": "Delete Last",
+        "ai_chat_label": "AI Chat:",
+        "ai_trigger_label": "Trigger:",
+        "ai_set_prompt_btn": "Set Prompt",
+        "ai_audit_label": "AI Audit:",
+        "ai_penalty_label": "Audit Penalty:",
+        "ai_delete_only": "Delete Only",
+        "ai_mute_1h": "Mute 1h",
+        "ai_kick": "Kick",
+        "ai_ban": "Ban",
         "unknown": "Unknown",
         "error": "Error",
         "success": "Success",
@@ -492,6 +630,11 @@ T = {
         "autobtn_disabled": "Disabled",
         "autobtn_edit": "Edit Buttons",
         "autobtn_empty": "Not set",
+        "start_message": '<tg-emoji emoji-id="5203948303305158848">🍷</tg-emoji>Hi, {USER}!\n\n<tg-emoji emoji-id="5929192117220937925">⭐️</tg-emoji>{BOT_USERNAME} helps you manage channels and groups securely — one of the top management bots on Telegram!\n\n<tg-emoji emoji-id="5866185084427572234">🤖</tg-emoji>Please grant me channel/group admin permissions!',
+        "add_pindao": '<tg-emoji emoji-id="5323476770706432095">📍</tg-emoji> Guide\n\nTo use {BOT_USERNAME} in a channel, add this bot to your channel and grant post/edit/delete message permissions.\n\n<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji> Note: If you don\'t receive any notification after adding, please remove and re-add the bot as admin.',
+        "add_qun": '<tg-emoji emoji-id="5323476770706432095">📍</tg-emoji> Guide\n\nTo use {BOT_USERNAME} in a group, add this bot to your group and grant message management permissions.\n\n<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji> Note: If you don\'t receive any notification after adding, please remove and re-add the bot as admin.',
+        "choose_lang": '<tg-emoji emoji-id="5879585266426973039">🌐</tg-emoji> Select Language\n\nCurrent: {LANG}\n\nSelect your language:',
+        "timezone_message": '<tg-emoji emoji-id="5258419835922030550">🕒</tg-emoji> Set Timezone\n\nCurrent: <b>{TIMEZONE}</b>\n\nSelect your timezone:',
     }
 }
 
@@ -505,7 +648,7 @@ async def get_user_lang(user_id: int) -> str:
     if user_id in _user_lang_cache:
         return _user_lang_cache[user_id]
     try:
-        async with db_pool.acquire() as conn:
+        async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("SELECT language FROM users WHERE user_id = %s", (user_id,))
                 row = await cur.fetchone()
@@ -514,16 +657,17 @@ async def get_user_lang(user_id: int) -> str:
                     return row[0]
     except Exception:
         pass
-    _user_lang_cache[user_id] = DEFAULT_LANG
     return DEFAULT_LANG
 
 
 async def set_user_lang(user_id: int, lang: str):
     _user_lang_cache[user_id] = lang
     try:
-        async with db_pool.acquire() as conn:
+        async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("UPDATE users SET language = %s WHERE user_id = %s", (lang, user_id))
+                await cur.execute(
+                    "INSERT INTO users (user_id, language) VALUES (%s, %s) ON DUPLICATE KEY UPDATE language = VALUES(language)",
+                    (user_id, lang))
     except Exception as e:
         logger.error(f"set_user_lang err: {e}")
 
@@ -540,6 +684,22 @@ async def t(user_id: int, key: str, **kwargs) -> str:
 
 
 def t_sync(lang: str, key: str, **kwargs) -> str:
+    text = T.get(lang, T[DEFAULT_LANG]).get(key, T[DEFAULT_LANG].get(key, key))
+    if kwargs:
+        try:
+            text = text.format(**kwargs)
+        except Exception:
+            pass
+    return text
+
+
+async def tb(user_id: int, key: str, **kwargs) -> str:
+    """Shortcut for button text translation."""
+    return await t(user_id, key, **kwargs)
+
+
+def get_template(key: str, lang: str = DEFAULT_LANG, **kwargs) -> str:
+    """Get a template message by key and language (sync, no user lookup)."""
     text = T.get(lang, T[DEFAULT_LANG]).get(key, T[DEFAULT_LANG].get(key, key))
     if kwargs:
         try:

@@ -238,7 +238,6 @@ _LONG_URL_RE = re.compile(r"https?://\S{50,}", re.I)
 
 
 async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """返回 (是否拦截, 原因)"""
     msg = update.message
     if not msg:
         return False, ""
@@ -326,7 +325,6 @@ async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def antispam_check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """拦截消息：删除 + 惩罚 + 警告"""
     blocked, reason = await check_antispam(update, context)
     if not blocked:
         return False

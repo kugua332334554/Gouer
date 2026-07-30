@@ -5,6 +5,8 @@ import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
 from telegram.ext import ContextTypes
 import database
+from database import validate_column_name
+from lang import t_sync, DEFAULT_LANG
 
 logger = logging.getLogger(__name__)
 
@@ -80,15 +82,16 @@ async def get_dingshi_list(chat_id: int) -> list:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "SELECT id, chat_id, schedule_time, schedule_days, content_text, buttons_text, media_type, media_file_id, status, last_sent_date, created_at FROM group_dingshi WHERE chat_id = %s ORDER BY id ASC",
+                    "SELECT id, chat_id, schedule_time, schedule_days, interval_minutes, content_text, buttons_text, media_type, media_file_id, status, last_sent_date, last_sent_at, created_at FROM group_dingshi WHERE chat_id = %s ORDER BY id ASC",
                     (chat_id,))
                 rows = await cur.fetchall()
                 result = []
                 for row in rows:
                     result.append({
                         "id": row[0], "chat_id": row[1], "schedule_time": row[2], "schedule_days": row[3] or "*",
-                        "content_text": row[4], "buttons_text": row[5], "media_type": row[6], "media_file_id": row[7],
-                        "status": bool(row[8]), "last_sent_date": row[9], "created_at": row[10]
+                        "interval_minutes": row[4] or 0,
+                        "content_text": row[5], "buttons_text": row[6], "media_type": row[7], "media_file_id": row[8],
+                        "status": bool(row[9]), "last_sent_date": row[10], "last_sent_at": row[11], "created_at": row[12]
                     })
                 return result
     except Exception as e:
@@ -101,27 +104,28 @@ async def get_dingshi_by_id(dingshi_id: int) -> dict:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "SELECT id, chat_id, schedule_time, schedule_days, content_text, buttons_text, media_type, media_file_id, status, last_sent_date, created_at FROM group_dingshi WHERE id = %s",
+                    "SELECT id, chat_id, schedule_time, schedule_days, interval_minutes, content_text, buttons_text, media_type, media_file_id, status, last_sent_date, last_sent_at, created_at FROM group_dingshi WHERE id = %s",
                     (dingshi_id,))
                 row = await cur.fetchone()
                 if row:
                     return {
                         "id": row[0], "chat_id": row[1], "schedule_time": row[2], "schedule_days": row[3] or "*",
-                        "content_text": row[4], "buttons_text": row[5], "media_type": row[6], "media_file_id": row[7],
-                        "status": bool(row[8]), "last_sent_date": row[9], "created_at": row[10]
+                        "interval_minutes": row[4] or 0,
+                        "content_text": row[5], "buttons_text": row[6], "media_type": row[7], "media_file_id": row[8],
+                        "status": bool(row[9]), "last_sent_date": row[10], "last_sent_at": row[11], "created_at": row[12]
                     }
     except Exception as e:
         logger.error(f"get_dingshi_by_id err: {e}", exc_info=True)
     return None
 
 
-async def create_dingshi(chat_id: int, schedule_time: str, schedule_days: str = "*") -> int:
+async def create_dingshi(chat_id: int, schedule_time: str, schedule_days: str = "*", interval_minutes: int = 0) -> int:
     try:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "INSERT INTO group_dingshi (chat_id, schedule_time, schedule_days) VALUES (%s, %s, %s)",
-                    (chat_id, schedule_time, schedule_days))
+                    "INSERT INTO group_dingshi (chat_id, schedule_time, schedule_days, interval_minutes) VALUES (%s, %s, %s, %s)",
+                    (chat_id, schedule_time, schedule_days, interval_minutes))
                 return cur.lastrowid
     except Exception as e:
         logger.error(f"create_dingshi err: {e}", exc_info=True)
@@ -137,7 +141,7 @@ async def update_dingshi(dingshi_id: int, **kwargs):
                 set_parts = []
                 values = []
                 for k, v in kwargs.items():
-                    set_parts.append(f"{k}=%s")
+                    set_parts.append(f"{validate_column_name(k)}=%s")
                     values.append(v)
                 values.append(dingshi_id)
                 sql = f"UPDATE group_dingshi SET {', '.join(set_parts)} WHERE id = %s"
@@ -175,14 +179,15 @@ async def get_all_active_dingshi() -> list:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "SELECT id, chat_id, schedule_time, schedule_days, content_text, buttons_text, media_type, media_file_id, status, last_sent_date, created_at FROM group_dingshi WHERE status = TRUE")
+                    "SELECT id, chat_id, schedule_time, schedule_days, interval_minutes, content_text, buttons_text, media_type, media_file_id, status, last_sent_date, last_sent_at, created_at FROM group_dingshi WHERE status = TRUE")
                 rows = await cur.fetchall()
                 result = []
                 for row in rows:
                     result.append({
                         "id": row[0], "chat_id": row[1], "schedule_time": row[2], "schedule_days": row[3] or "*",
-                        "content_text": row[4], "buttons_text": row[5], "media_type": row[6], "media_file_id": row[7],
-                        "status": bool(row[8]), "last_sent_date": row[9], "created_at": row[10]
+                        "interval_minutes": row[4] or 0,
+                        "content_text": row[5], "buttons_text": row[6], "media_type": row[7], "media_file_id": row[8],
+                        "status": bool(row[9]), "last_sent_date": row[10], "last_sent_at": row[11], "created_at": row[12]
                     })
                 return result
     except Exception as e:
@@ -190,11 +195,11 @@ async def get_all_active_dingshi() -> list:
         return []
 
 
-async def update_dingshi_last_sent(dingshi_id: int, date_val):
+async def update_dingshi_last_sent(dingshi_id: int, date_val, datetime_val=None):
     try:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("UPDATE group_dingshi SET last_sent_date = %s WHERE id = %s", (date_val, dingshi_id))
+                await cur.execute("UPDATE group_dingshi SET last_sent_date = %s, last_sent_at = %s WHERE id = %s", (date_val, datetime_val, dingshi_id))
     except Exception as e:
         logger.error(f"update_dingshi_last_sent err: {e}", exc_info=True)
 
@@ -242,64 +247,75 @@ async def get_dingshi_list_text(chat_id: str, dingshi_list: list, user_id: int =
     else:
         for idx, item in enumerate(dingshi_list, 1):
             status_icon = f'<tg-emoji emoji-id="{CHECK_EMOJI_ID}">✅</tg-emoji>' if item["status"] else f'<tg-emoji emoji-id="{CROSS_EMOJI_ID}">❌</tg-emoji>'
-            time_str = item["schedule_time"]
-            days_str = format_days_display(item.get("schedule_days", "*"))
+            interval_mins = item.get("interval_minutes", 0) or 0
+            if interval_mins > 0:
+                time_str = f'每{interval_mins}分钟'
+                days_str = ''
+            else:
+                time_str = item["schedule_time"]
+                days_str = f' | {format_days_display(item.get("schedule_days", "*"))}'
             has_text = f'<tg-emoji emoji-id="{TEXT_EMOJI_ID}">📝</tg-emoji>' if item.get("content_text") else ""
             has_media = f'<tg-emoji emoji-id="{MEDIA_EMOJI_ID}">📷</tg-emoji>' if item.get("media_file_id") else ""
             has_btn = f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji>' if item.get("buttons_text") else ""
             extras = " ".join(filter(None, [has_text, has_media, has_btn]))
-            text_parts.append(f'\n{idx}. {status_icon} <b>{time_str}</b> | {days_str} {extras}')
+            text_parts.append(f'\n{idx}. {status_icon} <b>{time_str}</b>{days_str} {extras}')
     return "".join(text_parts)
 
 
-def get_dingshi_list_keyboard(chat_id: str, dingshi_list: list) -> InlineKeyboardMarkup:
+def get_dingshi_list_keyboard(chat_id: str, dingshi_list: list, lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
     keyboard = []
     for item in dingshi_list:
         status_icon = CHECK_EMOJI_ID if item["status"] else CROSS_EMOJI_ID
+        interval_mins = item.get("interval_minutes", 0) or 0
+        label = f'每{interval_mins}分钟' if interval_mins > 0 else item["schedule_time"]
         row = [
-            InlineKeyboardButton(f'⏰ {item["schedule_time"]}', callback_data=f"dingshi_detail_{chat_id}_{item['id']}", icon_custom_emoji_id=CLOCK_EMOJI_ID),
-            InlineKeyboardButton("启" if item["status"] else "停", callback_data=f"dingshi_toggle_{chat_id}_{item['id']}", icon_custom_emoji_id=status_icon),
-            InlineKeyboardButton("删", callback_data=f"dingshi_delete_{chat_id}_{item['id']}", icon_custom_emoji_id=DELETE_EMOJI_ID)
+            InlineKeyboardButton(label, callback_data=f"dingshi_detail_{chat_id}_{item['id']}", icon_custom_emoji_id=CLOCK_EMOJI_ID),
+            InlineKeyboardButton(t_sync(lang, "enable_btn") if item["status"] else t_sync(lang, "disable_btn"), callback_data=f"dingshi_toggle_{chat_id}_{item['id']}", icon_custom_emoji_id=status_icon),
+            InlineKeyboardButton(t_sync(lang, "delete_short"), callback_data=f"dingshi_delete_{chat_id}_{item['id']}", icon_custom_emoji_id=DELETE_EMOJI_ID)
         ]
         keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("添加定时消息", callback_data=f"dingshi_add_{chat_id}", icon_custom_emoji_id=ADD_EMOJI_ID)])
-    keyboard.append([InlineKeyboardButton("« 返回群组管理", callback_data=f"manage_group_{chat_id}")])
+    keyboard.append([InlineKeyboardButton(t_sync(lang, "dingshi_add"), callback_data=f"dingshi_add_{chat_id}", icon_custom_emoji_id=ADD_EMOJI_ID)])
+    keyboard.append([InlineKeyboardButton("« " + t_sync(lang, "back_group_manage"), callback_data=f"manage_group_{chat_id}")])
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_dingshi_detail_text(item: dict) -> str:
-    status_text = f'<tg-emoji emoji-id="{CHECK_EMOJI_ID}">✅</tg-emoji> 开启' if item["status"] else f'<tg-emoji emoji-id="{CROSS_EMOJI_ID}">❌</tg-emoji> 关闭'
-    days_str = format_days_display(item.get("schedule_days", "*"))
+def get_dingshi_detail_text(item: dict, lang: str = DEFAULT_LANG) -> str:
+    status_text = f'<tg-emoji emoji-id="{CHECK_EMOJI_ID}">✅</tg-emoji> {t_sync(lang, "enable")}' if item["status"] else f'<tg-emoji emoji-id="{CROSS_EMOJI_ID}">❌</tg-emoji> {t_sync(lang, "disable")}'
+    interval_mins = item.get("interval_minutes", 0) or 0
+    if interval_mins > 0:
+        time_line = f'<b>发送间隔</b> 每{interval_mins}分钟'
+        day_line = ''
+    else:
+        time_line = f'<b>发送时间</b> {item["schedule_time"]}'
+        days_str = format_days_display(item.get("schedule_days", "*"))
+        day_line = f'<b>发送周期</b> {days_str}'
     has_media = f'<tg-emoji emoji-id="{CHECK_EMOJI_ID}">✅</tg-emoji>' if item.get("media_file_id") else f'<tg-emoji emoji-id="{CROSS_EMOJI_ID}">❌</tg-emoji>'
     has_buttons = f'<tg-emoji emoji-id="{CHECK_EMOJI_ID}">✅</tg-emoji>' if item.get("buttons_text") else f'<tg-emoji emoji-id="{CROSS_EMOJI_ID}">❌</tg-emoji>'
     has_text = f'<tg-emoji emoji-id="{CHECK_EMOJI_ID}">✅</tg-emoji>' if item.get("content_text") else f'<tg-emoji emoji-id="{CROSS_EMOJI_ID}">❌</tg-emoji>'
-    content_preview = ""
-    if item.get("content_text"):
-        preview = item["content_text"][:100]
-        content_preview = f'\n<blockquote expandable>{preview}</blockquote>'
     parts = [
-        f'<tg-emoji emoji-id="{CLOCK_EMOJI_ID}">⏰</tg-emoji> <b>定时消息详情</b>\n',
-        f'<b>状态:</b> {status_text}',
-        f'<b>发送时间:</b> {item["schedule_time"]}',
-        f'<b>发送周期:</b> {days_str}',
-        f'<b>文本内容:</b> {has_text}{content_preview}',
-        f'<b>媒体附件:</b> {has_media}',
-        f'<b>链接按钮:</b> {has_buttons}'
+        f'<tg-emoji emoji-id="{CLOCK_EMOJI_ID}">⏰</tg-emoji> <b>{t_sync(lang, "dingshi_detail")}</b>\n',
+        f'<b>{t_sync(lang, "status_label")}</b> {status_text}',
+        time_line,
+        f'<b>{t_sync(lang, "text_label")}</b> {has_text}',
+        f'<b>{t_sync(lang, "media_label")}</b> {has_media}',
+        f'<b>{t_sync(lang, "btn_label")}</b> {has_buttons}'
     ]
+    if day_line:
+        parts.insert(3, day_line)
     return "\n".join(parts)
 
 
-def get_dingshi_detail_keyboard(chat_id: str, dingshi_id: int, item: dict) -> InlineKeyboardMarkup:
+def get_dingshi_detail_keyboard(chat_id: str, dingshi_id: int, item: dict, lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
     status_icon = CHECK_EMOJI_ID if item["status"] else CROSS_EMOJI_ID
     keyboard = [
-        [InlineKeyboardButton("关闭" if item["status"] else "开启", callback_data=f"dingshi_toggle_{chat_id}_{dingshi_id}", icon_custom_emoji_id=CROSS_EMOJI_ID if item["status"] else CHECK_EMOJI_ID)],
-        [InlineKeyboardButton("修改文本", callback_data=f"dingshi_edit_text_{chat_id}_{dingshi_id}", icon_custom_emoji_id=TEXT_EMOJI_ID),
-         InlineKeyboardButton("修改媒体", callback_data=f"dingshi_edit_media_{chat_id}_{dingshi_id}", icon_custom_emoji_id=MEDIA_EMOJI_ID)],
-        [InlineKeyboardButton("修改按钮", callback_data=f"dingshi_edit_btn_{chat_id}_{dingshi_id}", icon_custom_emoji_id=BTN_EMOJI_ID),
-         InlineKeyboardButton("修改时间", callback_data=f"dingshi_edit_time_{chat_id}_{dingshi_id}", icon_custom_emoji_id=CLOCK_EMOJI_ID)],
-        [InlineKeyboardButton("预览消息", callback_data=f"dingshi_preview_{chat_id}_{dingshi_id}", icon_custom_emoji_id=PREVIEW_EMOJI_ID)],
-        [InlineKeyboardButton("删除此定时", callback_data=f"dingshi_delete_{chat_id}_{dingshi_id}", icon_custom_emoji_id=DELETE_EMOJI_ID)],
-        [InlineKeyboardButton("« 返回定时列表", callback_data=f"group_dingshi_{chat_id}")]
+        [InlineKeyboardButton(t_sync(lang, "close_btn") if item["status"] else t_sync(lang, "open_btn"), callback_data=f"dingshi_toggle_{chat_id}_{dingshi_id}", icon_custom_emoji_id=CROSS_EMOJI_ID if item["status"] else CHECK_EMOJI_ID)],
+        [InlineKeyboardButton(t_sync(lang, "edit_text_btn"), callback_data=f"dingshi_edit_text_{chat_id}_{dingshi_id}", icon_custom_emoji_id=TEXT_EMOJI_ID),
+         InlineKeyboardButton(t_sync(lang, "edit_media_btn"), callback_data=f"dingshi_edit_media_{chat_id}_{dingshi_id}", icon_custom_emoji_id=MEDIA_EMOJI_ID)],
+        [InlineKeyboardButton(t_sync(lang, "edit_btn_btn"), callback_data=f"dingshi_edit_btn_{chat_id}_{dingshi_id}", icon_custom_emoji_id=BTN_EMOJI_ID),
+         InlineKeyboardButton(t_sync(lang, "dingshi_edit_time"), callback_data=f"dingshi_edit_time_{chat_id}_{dingshi_id}", icon_custom_emoji_id=CLOCK_EMOJI_ID)],
+        [InlineKeyboardButton(t_sync(lang, "preview"), callback_data=f"dingshi_preview_{chat_id}_{dingshi_id}", icon_custom_emoji_id=PREVIEW_EMOJI_ID)],
+        [InlineKeyboardButton(t_sync(lang, "dingshi_del"), callback_data=f"dingshi_delete_{chat_id}_{dingshi_id}", icon_custom_emoji_id=DELETE_EMOJI_ID)],
+        [InlineKeyboardButton("« " + t_sync(lang, "dingshi_back_list"), callback_data=f"group_dingshi_{chat_id}")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -359,7 +375,7 @@ async def _do_step_skip(context, chat_id: str, dingshi_id: int, current_step: st
     prompts = {
         "text": (f'<tg-emoji emoji-id="{TEXT_EMOJI_ID}">📝</tg-emoji> <b>第二步：设置消息文本</b>\n\n支持 HTML 和文字字体格式（加粗、链接、删透、块引用、<b>自定义会员表情</b>等）\n\n请发送定时消息的文本内容：', True),
         "media": (f'<tg-emoji emoji-id="{MEDIA_EMOJI_ID}">🖼</tg-emoji> <b>第三步：设置媒体附件（可选）</b>\n\n请发送图片、视频或文件（大小不超过 <b>5MB</b>）：', True),
-        "buttons": (f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>第四步：设置按钮（可选）</b>\n\n格式：<b>颜色（可选）-会员表情ID（可选）-按钮文字-链接</b>\n颜色：红色 / 绿色 / 蓝色\n用 <b>&&</b> 分隔同行，<b>换行</b>分行\n\n示例：\n<code>蓝色-官方频道-https://t.me/channel</code>：', True),
+        "buttons": (f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>第四步：设置按钮（可选）</b>\n\n格式：<b>颜色（可选）-按钮文字-链接</b>\n颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n用 <b>&&</b> 分隔同行，<b>换行</b>分行\n\n示例：\n<code>蓝色-官方频道-https://t.me/channel</code>\n<code>红色-按钮1-https://a.com && 绿色-按钮2-https://b.com</code>：', True),
     }
     prompt, has_skip = prompts[next_s]
     await context.bot.send_message(chat_id=target_chat_id, text=prompt, parse_mode="HTML", reply_markup=kb)
@@ -429,9 +445,11 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"group_dingshi_{chat_id}")]])
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{CLOCK_EMOJI_ID}">⏰</tg-emoji> <b>添加定时消息</b>\n\n'
-            f'请发送 <b>发送时间</b> 和 <b>发送周期</b>，格式：\n<code>HH:MM|周期</code>\n\n'
-            f'周期可选：<b>每天</b>、<b>工作日</b>、<b>周末</b>、或指定星期（如 <b>周一,周三,周五</b>）\n\n'
-            f'示例：\n<code>08:00|每天</code>\n<code>20:30|工作日</code>\n<code>12:00|周一,周三,周五</code>',
+            f'<b>每日定时：</b>\n<code>HH:MM|周期</code>\n'
+            f'周期可选：<b>每天</b>、<b>工作日</b>、<b>周末</b>、或指定星期（如 <b>周一,周三,周五</b>）\n'
+            f'示例：<code>08:00|每天</code>、<code>20:30|工作日</code>\n\n'
+            f'<b>间隔发送：</b>\n<code>每X分钟</code>\n'
+            f'示例：<code>每5分钟</code>、<code>每30分钟</code>',
             reply_markup=kb
         )
         return
@@ -506,10 +524,10 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
         kb = get_step_keyboard(chat_id, dingshi_id, "buttons", show_clear=True, show_skip=True)
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑定时消息按钮</b>\n\n'
-            f'格式：<b>颜色（可选）-会员表情ID（可选）-按钮文字-链接</b>\n'
-            f'颜色：红色(红) / 绿色(绿) / 蓝色(蓝)\n用 <b>&&</b> 分隔同行按钮，<b>换行</b>分行\n\n'
+            f'格式：<b>颜色（可选）-按钮文字-链接</b>\n'
+            f'颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n'
+            f'用 <b>&&</b> 分隔同行按钮，<b>换行</b>分行\n\n'
             f'示例：\n<code>蓝色-官方频道-https://t.me/channel</code>\n'
-            f'<code>5387467342955939604-按钮文字-https://example.com</code>\n'
             f'<code>红色-按钮1-https://a.com && 绿色-按钮2-https://b.com</code>',
             reply_markup=kb
         )
@@ -520,14 +538,19 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
         chat_id = parts[3]
         dingshi_id = int(parts[4])
         item = await get_dingshi_by_id(dingshi_id)
-        current = f'{item["schedule_time"]}|{format_days_display(item.get("schedule_days", "*"))}'
+        interval_mins = item.get("interval_minutes", 0) or 0
+        if interval_mins > 0:
+            current = f'每{interval_mins}分钟'
+        else:
+            current = f'{item["schedule_time"]}|{format_days_display(item.get("schedule_days", "*"))}'
         await query.answer()
         _AWAIT_DINGSHI_INPUT[user_id] = {"type": "basic", "chat_id": chat_id, "dingshi_id": dingshi_id}
         kb = get_step_keyboard(chat_id, dingshi_id, "basic", show_clear=False, show_skip=False)
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{CLOCK_EMOJI_ID}">⏰</tg-emoji> <b>修改发送时间</b>\n\n'
-            f'当前设置：<code>{current}</code>\n\n请发送新的时间设置，格式：<code>HH:MM|周期</code>\n'
-            f'周期可选：每天、工作日、周末、周一,周三,周五 等',
+            f'当前设置：<code>{current}</code>\n\n请发送新的时间设置：\n'
+            f'每日定时：<code>HH:MM|周期</code>\n'
+            f'间隔发送：<code>每X分钟</code>',
             reply_markup=kb
         )
         return
@@ -576,13 +599,44 @@ async def dingshi_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
         if input_type == "basic":
             if not message.text:
                 kb = get_step_keyboard(str(chat_id), dingshi_id, "basic", show_skip=False, show_clear=False)
-                await message.reply_html(f'{EMOJI_WARN} 请发送文本格式的时间设置，如：<code>08:00|每天</code>', reply_markup=kb)
+                await message.reply_html(f'{EMOJI_WARN} 请发送文本格式的时间设置，如：<code>08:00|每天</code> 或 <code>每5分钟</code>', reply_markup=kb)
                 return
             raw_text = message.text.strip()
+
+            # 间隔模式：每X分钟 / 每X分
+            interval_match = re.match(r'^每\s*(\d+)\s*(分钟|分)$', raw_text)
+            if interval_match:
+                interval_mins = int(interval_match.group(1))
+                if interval_mins < 1 or interval_mins > 1440:
+                    kb = get_step_keyboard(str(chat_id), dingshi_id, "basic", show_skip=False, show_clear=False)
+                    await message.reply_html(f'{EMOJI_WARN} 间隔分钟数需在 1-1440 之间（1分钟 至 24小时）。', reply_markup=kb)
+                    return
+                if dingshi_id:
+                    await update_dingshi(dingshi_id, schedule_time="", schedule_days="*", interval_minutes=interval_mins)
+                    _AWAIT_DINGSHI_INPUT.pop(user_id, None)
+                    await message.reply_html(f'{EMOJI_SUCCESS} 已设置为每隔 <b>{interval_mins}</b> 分钟发送！')
+                    await send_dingshi_detail_panel(context, str(chat_id), dingshi_id, update.effective_chat.id)
+                else:
+                    new_id = await create_dingshi(chat_id, "", "*", interval_mins)
+                    if new_id:
+                        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "text", "chat_id": str(chat_id), "dingshi_id": new_id}
+                        kb = get_step_keyboard(str(chat_id), new_id, "text", show_clear=False, show_skip=True)
+                        await message.reply_html(
+                            f'{EMOJI_SUCCESS} 间隔设置成功（每 <b>{interval_mins}</b> 分钟）！\n\n'
+                            f'<tg-emoji emoji-id="{TEXT_EMOJI_ID}">📝</tg-emoji> <b>第二步：设置消息文本</b>\n\n'
+                            f'支持 HTML 和文字字体格式（加粗、链接、删透、块引用、<b>自定义会员表情</b>等）\n\n'
+                            f'请发送定时消息的文本内容：',
+                            reply_markup=kb
+                        )
+                    else:
+                        await message.reply_html(f'{EMOJI_ERROR} 创建失败，请重试。')
+                return
+
+            # 每日定时模式：HH:MM|周期
             match = re.match(r'^(\d{1,2}):(\d{2})\|(.+)$', raw_text)
             if not match:
                 kb = get_step_keyboard(str(chat_id), dingshi_id, "basic", show_skip=False, show_clear=False)
-                await message.reply_html(f'{EMOJI_WARN} 格式错误！请使用格式：<code>HH:MM|周期</code>\n示例：<code>08:00|每天</code>', reply_markup=kb)
+                await message.reply_html(f'{EMOJI_WARN} 格式错误！\n每日定时：<code>HH:MM|周期</code>（如 <code>08:00|每天</code>）\n间隔发送：<code>每X分钟</code>（如 <code>每5分钟</code>）', reply_markup=kb)
                 return
             hour = int(match.group(1))
             minute = int(match.group(2))
@@ -598,7 +652,7 @@ async def dingshi_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 return
             schedule_time = f"{hour:02d}:{minute:02d}"
             if dingshi_id:
-                await update_dingshi(dingshi_id, schedule_time=schedule_time, schedule_days=days_raw)
+                await update_dingshi(dingshi_id, schedule_time=schedule_time, schedule_days=days_raw, interval_minutes=0)
                 _AWAIT_DINGSHI_INPUT.pop(user_id, None)
                 await message.reply_html(f'{EMOJI_SUCCESS} 发送时间已更新！')
                 await send_dingshi_detail_panel(context, str(chat_id), dingshi_id, update.effective_chat.id)
@@ -670,7 +724,8 @@ async def dingshi_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
             await message.reply_html(
                 f'{EMOJI_SUCCESS} 媒体附件已设置！\n\n'
                 f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>第四步：设置按钮（可选）</b>\n\n'
-                f'格式：<b>颜色（可选）-会员表情ID（可选）-按钮文字-链接</b>\n'
+                f'格式：<b>颜色（可选）-按钮文字-链接</b>\n'
+                f'颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n'
                 f'用 <b>&&</b> 分隔同行，<b>换行</b>分行',
                 reply_markup=kb
             )
@@ -705,26 +760,62 @@ async def dingshi_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def dingshi_scheduler(context: ContextTypes.DEFAULT_TYPE):
     try:
         now_utc = datetime.datetime.utcnow()
-        now_beijing = now_utc + datetime.timedelta(hours=8)
-        current_time = now_beijing.strftime("%H:%M")
-        current_weekday = now_beijing.isoweekday()
-        today_date = now_beijing.date()
         active_list = await get_all_active_dingshi()
+        # 按群缓存时区偏移，避免对同一群重复查询
+        _tz_cache = {}
         for item in active_list:
             try:
-                if item["schedule_time"] != current_time:
-                    continue
-                if not should_send_today(item.get("schedule_days", "*"), current_weekday):
-                    continue
-                last_sent = item.get("last_sent_date")
-                if last_sent and last_sent == today_date:
-                    continue
+                chat_id = item["chat_id"]
+                # 获取该群群主的时区偏移
+                if chat_id not in _tz_cache:
+                    from database import get_user_timezone
+                    offset = 8  # 默认 UTC+8
+                    try:
+                        admins = await context.bot.get_chat_administrators(chat_id)
+                        owner = next((a.user for a in admins if a.status == "creator"), None)
+                        if owner:
+                            tz_str = await get_user_timezone(owner.id)
+                            import re as _re
+                            m = _re.search(r'UTC([+-]\d+)', tz_str)
+                            if m:
+                                offset = int(m.group(1))
+                    except Exception:
+                        pass
+                    _tz_cache[chat_id] = offset
+                offset = _tz_cache[chat_id]
+                now_local = now_utc + datetime.timedelta(hours=offset)
+                current_time = now_local.strftime("%H:%M")
+                current_weekday = now_local.isoweekday()
+                today_date = now_local.date()
+
+                interval_mins = item.get("interval_minutes", 0) or 0
+
+                if interval_mins > 0:
+                    # 间隔模式：检查距离上次发送是否已满 interval_minutes
+                    last_sent_at = item.get("last_sent_at")
+                    if last_sent_at and isinstance(last_sent_at, datetime.datetime):
+                        elapsed = (now_local - last_sent_at).total_seconds()
+                        if elapsed < interval_mins * 60:
+                            continue
+                else:
+                    # 每日定时模式
+                    if item["schedule_time"] != current_time:
+                        continue
+                    if not should_send_today(item.get("schedule_days", "*"), current_weekday):
+                        continue
+                    last_sent = item.get("last_sent_date")
+                    if last_sent and last_sent == today_date:
+                        continue
+
                 if not item.get("content_text") and not item.get("media_file_id"):
                     continue
-                success = await send_dingshi_message(context.bot, item["chat_id"], item)
+                success = await send_dingshi_message(context.bot, chat_id, item)
                 if success:
-                    await update_dingshi_last_sent(item["id"], today_date)
-                    logger.info(f"dingshi sent: id={item['id']} chat={item['chat_id']} time={current_time}")
+                    await update_dingshi_last_sent(item["id"], today_date, now_local)
+                    if interval_mins > 0:
+                        logger.info(f"dingshi sent (interval={interval_mins}m): id={item['id']} chat={chat_id}")
+                    else:
+                        logger.info(f"dingshi sent: id={item['id']} chat={chat_id} time={current_time} tz=UTC{offset:+d}")
             except Exception as e:
                 logger.error(f"dingshi_scheduler item err id={item.get('id')}: {e}")
     except Exception as e:

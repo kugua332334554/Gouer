@@ -336,11 +336,13 @@ async def try_card(message, bot, context):
     if key in _inflight or now - _cool.get(key, 0) < COOLDOWN:
         return True
     _cool[key] = now
+    # 定期清理过期冷却条目，而非全量清空（防止内存泄漏 + 避免误伤刚触发的冷却）
     if len(_cool) > 2000:
         cutoff = now - COOLDOWN
         expired = [k for k, v in _cool.items() if v < cutoff]
         for k in expired:
             _cool.pop(k, None)
+        # 兜底：如果清理后仍然过多（极少情况），全量清空
         if len(_cool) > 3000:
             _cool.clear()
     _inflight.add(key)
@@ -354,6 +356,7 @@ async def _send_card(message, bot, target_user, username, key):
         uid = target_user.id
         name = (target_user.full_name or "").strip()
         uname = target_user.username or ""
+        # 自动录入 users 表，下次 @ 直接查库
         try:
             async with database.db_pool.acquire() as conn:
                 async with conn.cursor() as cur:

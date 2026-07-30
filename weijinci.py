@@ -149,7 +149,7 @@ def get_weijinci_list_keyboard(chat_id: str, items: list) -> InlineKeyboardMarku
         status_icon = CHECK_EMOJI_ID if item["status"] else CROSS_EMOJI_ID
         row = [
             InlineKeyboardButton(item["word"], callback_data=f"weijinci_penalty_{chat_id}_{item['id']}", icon_custom_emoji_id=SHIELD_EMOJI_ID),
-            InlineKeyboardButton("启" if item["status"] else "停", callback_data=f"weijinci_toggle_{chat_id}_{item['id']}", icon_custom_emoji_id=status_icon),
+            InlineKeyboardButton("关闭" if item["status"] else "开启", callback_data=f"weijinci_toggle_{chat_id}_{item['id']}", icon_custom_emoji_id=status_icon),
             InlineKeyboardButton("删", callback_data=f"weijinci_delete_{chat_id}_{item['id']}", icon_custom_emoji_id=DELETE_EMOJI_ID)
         ]
         keyboard.append(row)
@@ -314,23 +314,24 @@ async def weijinci_input_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def weijinci_check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """检查消息是否包含违禁词，命中则删除+惩罚。返回 True 表示已拦截（调用方应停止后续处理）。"""
     try:
         if not update.message or not update.message.text:
-            return
+            return False
         logger.info(f"weijinci_check_handler called, text={update.message.text[:30]}, chat={update.effective_chat.id}")
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         if update.effective_user.is_bot:
-            return
+            return False
         try:
             member = await context.bot.get_chat_member(chat_id, user_id)
             if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
-                return
+                return False
         except Exception:
             pass
         words = await get_active_weijinci(chat_id)
         if not words:
-            return
+            return False
         msg_text = update.message.text.lower()
         matched = None
         for w in words:
@@ -338,7 +339,7 @@ async def weijinci_check_handler(update: Update, context: ContextTypes.DEFAULT_T
                 matched = w
                 break
         if not matched:
-            return
+            return False
         try:
             await update.message.delete()
         except Exception:
@@ -367,8 +368,10 @@ async def weijinci_check_handler(update: Update, context: ContextTypes.DEFAULT_T
             asyncio.create_task(_delete_after(context.bot, chat_id, warn_msg.message_id, 10))
         except Exception:
             pass
+        return True
     except Exception as e:
         logger.error(f"weijinci_check_handler err: {e}", exc_info=True)
+        return False
 
 
 async def _delete_after(bot, chat_id: int, msg_id: int, delay: int):

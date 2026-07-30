@@ -1,10 +1,26 @@
 import logging
 import datetime
+import re
 import aiomysql
 import config
 
 logger = logging.getLogger(__name__)
 db_pool = None
+
+# ── SQL injection prevention ──────────────────────────────────────────
+_VALID_COLUMN_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+def validate_column_name(col: str) -> str:
+    """Validate column name; raises ValueError if invalid (SQL injection defense)."""
+    if not _VALID_COLUMN_RE.match(col):
+        raise ValueError(f"Invalid column name: {col}")
+    return col
+
+def _validate_table_name(name: str) -> str:
+    """Validate table name; raises ValueError if invalid."""
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
+        raise ValueError(f"Invalid table name: {name}")
+    return name
 
 async def init_db():
     global db_pool
@@ -81,6 +97,10 @@ async def init_db():
                 except Exception:
                     pass
                 try:
+                    await cur.execute("ALTER TABLE users ADD COLUMN bio VARCHAR(255) DEFAULT ''")
+                except Exception:
+                    pass
+                try:
                     await cur.execute("ALTER TABLE group_points_settings ADD COLUMN delete_time INT DEFAULT 0")
                 except Exception:
                     pass
@@ -107,15 +127,26 @@ async def init_db():
                         chat_id BIGINT NOT NULL,
                         schedule_time VARCHAR(5) NOT NULL,
                         schedule_days VARCHAR(50) DEFAULT '*',
+                        interval_minutes INT DEFAULT 0,
                         content_text TEXT,
                         buttons_text TEXT,
                         media_type VARCHAR(20),
                         media_file_id VARCHAR(255),
                         status BOOLEAN DEFAULT TRUE,
                         last_sent_date DATE,
+                        last_sent_at DATETIME,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                # 兼容旧表：补加新字段（若已存在则忽略错误）
+                try:
+                    await cur.execute("ALTER TABLE group_dingshi ADD COLUMN interval_minutes INT DEFAULT 0")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_dingshi ADD COLUMN last_sent_at DATETIME")
+                except Exception:
+                    pass
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_night (
                         chat_id BIGINT PRIMARY KEY,
@@ -131,9 +162,14 @@ async def init_db():
                         pin_lottery BOOLEAN DEFAULT TRUE,
                         pin_result BOOLEAN DEFAULT TRUE,
                         delete_entry INT DEFAULT 0,
-                        push_channel VARCHAR(255) DEFAULT ''
+                        push_channel VARCHAR(255) DEFAULT '',
+                        push_enabled BOOLEAN DEFAULT FALSE
                     )
                 """)
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang_settings ADD COLUMN push_enabled BOOLEAN DEFAULT FALSE")
+                except Exception:
+                    pass
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_choujiang (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -147,11 +183,21 @@ async def init_db():
                         draw_method VARCHAR(20) DEFAULT 'count',
                         draw_count INT DEFAULT 0,
                         draw_time DATETIME,
+                        report_group_id BIGINT DEFAULT 0,
+                        report_keyword VARCHAR(100) DEFAULT '',
                         status VARCHAR(20) DEFAULT 'active',
                         message_id BIGINT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN report_group_id BIGINT DEFAULT 0")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN report_keyword VARCHAR(100) DEFAULT ''")
+                except Exception:
+                    pass
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_choujiang_entries (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -187,6 +233,30 @@ async def init_db():
                 except Exception:
                     pass
                 await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS card_users (
+                        user_id BIGINT PRIMARY KEY,
+                        card_type VARCHAR(32) NOT NULL DEFAULT 'normal',
+                        bio VARCHAR(255) DEFAULT ''
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_ai (
+                        chat_id BIGINT PRIMARY KEY,
+                        chat_enabled BOOLEAN DEFAULT FALSE,
+                        chat_prompt TEXT,
+                        chat_trigger VARCHAR(100) DEFAULT '',
+                        audit_enabled BOOLEAN DEFAULT FALSE,
+                        audit_penalty VARCHAR(20) DEFAULT 'delete'
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_card (
+                        chat_id BIGINT PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT FALSE,
+                        template VARCHAR(20) DEFAULT 'default'
+                    )
+                """)
+                await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_autodelete (
                         chat_id BIGINT PRIMARY KEY,
                         pin BOOLEAN DEFAULT FALSE,
@@ -218,23 +288,182 @@ async def init_db():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ai_kv (
+                        `key` VARCHAR(191) PRIMARY KEY,
+                        value MEDIUMTEXT
+                    ) DEFAULT CHARSET=utf8mb4
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS fortunes (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        sign VARCHAR(64),
+                        poem VARCHAR(255),
+                        reading VARCHAR(255),
+                        poem_key VARCHAR(191) UNIQUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    ) DEFAULT CHARSET=utf8mb4
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_subscriptions (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        chat_id BIGINT NOT NULL,
+                        feature VARCHAR(32) NOT NULL,
+                        expires_at TIMESTAMP NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY uk_chat_feature (chat_id, feature)
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS payment_orders (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        merchant_order_no VARCHAR(100) UNIQUE NOT NULL,
+                        chat_id BIGINT NOT NULL,
+                        user_id BIGINT NOT NULL,
+                        feature VARCHAR(32) NOT NULL,
+                        amount VARCHAR(20) NOT NULL,
+                        currency VARCHAR(10) NOT NULL,
+                        status VARCHAR(20) DEFAULT 'created',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS bot_tokens (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        owner_id BIGINT NOT NULL,
+                        bot_token VARCHAR(255) NOT NULL,
+                        bot_username VARCHAR(255) DEFAULT '',
+                        db_name VARCHAR(100) DEFAULT '',
+                        status VARCHAR(20) DEFAULT 'active',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                try:
+                    await cur.execute("ALTER TABLE bot_tokens ADD COLUMN db_name VARCHAR(100) DEFAULT ''")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE bot_tokens ADD COLUMN pid INT DEFAULT 0")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE bot_tokens ADD COLUMN token_hash VARCHAR(64) DEFAULT ''")
+                except Exception:
+                    pass
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_antispam (
+                        chat_id BIGINT PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT FALSE,
+                        block_contact BOOLEAN DEFAULT FALSE,
+                        block_location BOOLEAN DEFAULT FALSE,
+                        block_channel_send BOOLEAN DEFAULT FALSE,
+                        block_channel_fwd BOOLEAN DEFAULT FALSE,
+                        block_external_ref BOOLEAN DEFAULT FALSE,
+                        block_exe BOOLEAN DEFAULT FALSE,
+                        block_mention BOOLEAN DEFAULT FALSE,
+                        block_links BOOLEAN DEFAULT FALSE,
+                        block_long_links BOOLEAN DEFAULT FALSE,
+                        block_visitor_bots BOOLEAN DEFAULT FALSE,
+                        block_flood BOOLEAN DEFAULT FALSE,
+                        flood_timeout INT DEFAULT 10,
+                        flood_count INT DEFAULT 5,
+                        penalty VARCHAR(20) DEFAULT 'delete',
+                        mute_duration INT DEFAULT 3600,
+                        whitelist TEXT,
+                        warn_delete INT DEFAULT 30
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_toggle (
+                        chat_id BIGINT PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT FALSE,
+                        open_keyword VARCHAR(100) DEFAULT '',
+                        open_text TEXT DEFAULT NULL,
+                        open_media_type VARCHAR(20) DEFAULT NULL,
+                        open_media_file_id VARCHAR(255) DEFAULT NULL,
+                        open_buttons_text TEXT DEFAULT NULL,
+                        close_keyword VARCHAR(100) DEFAULT '',
+                        close_text TEXT DEFAULT NULL,
+                        close_media_type VARCHAR(20) DEFAULT NULL,
+                        close_media_file_id VARCHAR(255) DEFAULT NULL,
+                        close_buttons_text TEXT DEFAULT NULL
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_message_check (
+                        chat_id BIGINT PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT FALSE,
+                        require_last_name BOOLEAN DEFAULT FALSE,
+                        require_username BOOLEAN DEFAULT FALSE,
+                        require_photo BOOLEAN DEFAULT FALSE,
+                        require_premium BOOLEAN DEFAULT FALSE,
+                        require_channel BOOLEAN DEFAULT FALSE,
+                        channel_username VARCHAR(255) DEFAULT '',
+                        penalty VARCHAR(20) DEFAULT 'mute',
+                        mute_duration INT DEFAULT 600,
+                        warn_delete INT DEFAULT 30
+                    )
+                """)
+                try:
+                    await cur.execute("ALTER TABLE group_message_check ADD COLUMN penalty VARCHAR(20) DEFAULT 'mute'")
+                except Exception:
+                    pass
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS pending_verifications (
+                        chat_id BIGINT NOT NULL,
+                        user_id BIGINT NOT NULL,
+                        msg_id BIGINT DEFAULT 0,
+                        correct_ans VARCHAR(100) DEFAULT '',
+                        expires_at DATETIME NOT NULL,
+                        PRIMARY KEY (chat_id, user_id)
+                    )
+                """)
+                try:
+                    await cur.execute("""
+                        CREATE TABLE IF NOT EXISTS stickers (
+                            file_id VARCHAR(255) PRIMARY KEY,
+                            emoji VARCHAR(10),
+                            added_by BIGINT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        ) DEFAULT CHARSET=utf8mb4
+                    """)
+                except Exception:
+                    pass
     except Exception as e:
         logger.error(f"db init fail: {e}", exc_info=True)
 
 def _clean_chat_id(chat_id: int) -> str:
-    return str(chat_id).replace("-", "")
+    """Convert chat_id to safe table-suffix string (digits only)."""
+    clean = str(chat_id).replace("-", "")
+    if not clean.isdigit():
+        raise ValueError(f"Invalid chat_id for table name: {chat_id}")
+    return clean
 
-async def save_user(user_id: int, username: str, first_name: str):
+async def save_user(user_id: int, username: str, first_name: str, last_name: str = "", bio: str = ""):
     try:
+        full_name = (first_name or "") + (" " + last_name if last_name else "")
+        full_name = full_name.strip()
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
-                    INSERT INTO users (user_id, username, first_name)
-                    VALUES (%s, %s, %s)
-                    ON DUPLICATE KEY UPDATE username = VALUES(username), first_name = VALUES(first_name)
-                """, (user_id, username, first_name))
+                    INSERT INTO users (user_id, username, first_name, bio)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE username = VALUES(username), first_name = VALUES(first_name), bio = VALUES(bio)
+                """, (user_id, username, full_name, bio))
     except Exception as e:
         logger.error(f"save user err: {e}", exc_info=True)
+
+async def get_user_id_by_username(username: str) -> int:
+    """按 @username 查找 user_id，用于 /mute /unmute 等命令"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT user_id FROM users WHERE username = %s ORDER BY created_at DESC LIMIT 1", (username,))
+                row = await cur.fetchone()
+                return row[0] if row else 0
+    except Exception:
+        return 0
+
 
 async def get_user_timezone(user_id: int) -> str:
     try:
@@ -267,7 +496,7 @@ async def register_channel(chat_id: int, title: str, username: str = None):
                     ON DUPLICATE KEY UPDATE title = VALUES(title), username = VALUES(username)
                 """, (chat_id, title, username))
                 await cur.execute(f"""
-                    CREATE TABLE IF NOT EXISTS `{table_name}` (
+                    CREATE TABLE IF NOT EXISTS `{_validate_table_name(table_name)}` (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         message_id BIGINT,
                         action VARCHAR(100),
@@ -289,7 +518,7 @@ async def register_supergroup(chat_id: int, title: str, username: str = None, ch
                     ON DUPLICATE KEY UPDATE title = VALUES(title), username = VALUES(username), type = VALUES(type)
                 """, (chat_id, title, username, chat_type))
                 await cur.execute(f"""
-                    CREATE TABLE IF NOT EXISTS `{table_name}` (
+                    CREATE TABLE IF NOT EXISTS `{_validate_table_name(table_name)}` (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         user_id BIGINT,
                         action VARCHAR(100),
@@ -386,7 +615,7 @@ async def update_welcome_settings(chat_id: int, **kwargs):
                 set_parts = []
                 values = []
                 for k, v in kwargs.items():
-                    set_parts.append(f"{k}=%s")
+                    set_parts.append(f"{validate_column_name(k)}=%s")
                     values.append(v)
                 values.append(chat_id)
                 sql = f"UPDATE group_welcome SET {', '.join(set_parts)} WHERE chat_id = %s"
@@ -424,8 +653,8 @@ async def add_user_points(chat_id: int, user_id: int, points: int):
             async with conn.cursor() as cur:
                 await cur.execute("""
                     INSERT INTO user_points (chat_id, user_id, points)
-                    VALUES (%s, %s, %s)
-                    ON DUPLICATE KEY UPDATE points = points + %s
+                    VALUES (%s, %s, GREATEST(0, %s))
+                    ON DUPLICATE KEY UPDATE points = GREATEST(0, points + %s)
                 """, (chat_id, user_id, points, points))
     except Exception as e:
         pass
@@ -437,37 +666,47 @@ async def process_checkin(chat_id: int, user_id: int, tz_offset: int = 0) -> dic
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT last_checkin, streak FROM user_checkin WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
-                row = await cur.fetchone()
-                streak = 0
-                last_checkin_utc = None
-                if row:
-                    last_checkin_utc = row[0]
-                    streak = row[1]
-                if last_checkin_utc:
-                    last_checkin_local = (datetime.datetime.combine(last_checkin_utc, datetime.time.min) + datetime.timedelta(hours=tz_offset)).date()
-                else:
-                    last_checkin_local = None
-                if last_checkin_local == today_local:
-                    return {"already_checked_in": True}
-                if last_checkin_local == today_local - datetime.timedelta(days=1):
-                    streak += 1
-                else:
-                    streak = 1
-                gained = streak
-                await cur.execute("""
-                    INSERT INTO user_checkin (chat_id, user_id, last_checkin, streak)
-                    VALUES (%s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE last_checkin=VALUES(last_checkin), streak=VALUES(streak)
-                """, (chat_id, user_id, today_utc, streak))
-                await cur.execute("""
-                    INSERT INTO user_points (chat_id, user_id, points)
-                    VALUES (%s, %s, %s)
-                    ON DUPLICATE KEY UPDATE points = points + %s
-                """, (chat_id, user_id, gained, gained))
-                await cur.execute("SELECT points FROM user_points WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
-                total = (await cur.fetchone())[0]
-                return {"already_checked_in": False, "gained": gained, "streak": streak, "total": total}
+                # 开启事务 + 行级排他锁，防止并发签到导致双倍积分
+                await cur.execute("BEGIN")
+                try:
+                    await cur.execute(
+                        "SELECT last_checkin, streak FROM user_checkin WHERE chat_id=%s AND user_id=%s FOR UPDATE",
+                        (chat_id, user_id))
+                    row = await cur.fetchone()
+                    streak = 0
+                    last_checkin_utc = None
+                    if row:
+                        last_checkin_utc = row[0]
+                        streak = row[1]
+                    if last_checkin_utc:
+                        last_checkin_local = (datetime.datetime.combine(last_checkin_utc, datetime.time.min) + datetime.timedelta(hours=tz_offset)).date()
+                    else:
+                        last_checkin_local = None
+                    if last_checkin_local == today_local:
+                        await cur.execute("COMMIT")
+                        return {"already_checked_in": True}
+                    if last_checkin_local == today_local - datetime.timedelta(days=1):
+                        streak += 1
+                    else:
+                        streak = 1
+                    gained = streak
+                    await cur.execute("""
+                        INSERT INTO user_checkin (chat_id, user_id, last_checkin, streak)
+                        VALUES (%s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE last_checkin=VALUES(last_checkin), streak=VALUES(streak)
+                    """, (chat_id, user_id, today_utc, streak))
+                    await cur.execute("""
+                        INSERT INTO user_points (chat_id, user_id, points)
+                        VALUES (%s, %s, %s)
+                        ON DUPLICATE KEY UPDATE points = points + %s
+                    """, (chat_id, user_id, gained, gained))
+                    await cur.execute("SELECT points FROM user_points WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
+                    total = (await cur.fetchone())[0]
+                    await cur.execute("COMMIT")
+                    return {"already_checked_in": False, "gained": gained, "streak": streak, "total": total}
+                except Exception:
+                    await cur.execute("ROLLBACK")
+                    raise
     except Exception as e:
         return {"already_checked_in": True}
 
@@ -487,8 +726,8 @@ async def update_user_points_direct(chat_id: int, user_id: int, delta: int) -> i
             async with conn.cursor() as cur:
                 await cur.execute("""
                     INSERT INTO user_points (chat_id, user_id, points)
-                    VALUES (%s, %s, %s)
-                    ON DUPLICATE KEY UPDATE points = points + %s
+                    VALUES (%s, %s, GREATEST(0, %s))
+                    ON DUPLICATE KEY UPDATE points = GREATEST(0, points + %s)
                 """, (chat_id, user_id, delta, delta))
                 await cur.execute("SELECT points FROM user_points WHERE chat_id=%s AND user_id=%s", (chat_id, user_id))
                 result = await cur.fetchone()
@@ -510,6 +749,65 @@ async def get_points_rank(chat_id: int, limit: int = 10) -> list:
     except Exception:
         return []
 
+async def get_all_verify_enabled_groups() -> list:
+    """获取所有开启了进群验证的群 ID 列表（用于重启后清理被锁用户）。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT chat_id FROM group_settings WHERE verify_status = TRUE")
+                return [r[0] for r in await cur.fetchall()]
+    except Exception:
+        return []
+
+
+# ── 验证状态持久化（防止重启后用户被永久禁言） ──
+
+async def save_verification(chat_id: int, user_id: int, msg_id: int, correct_ans: str,
+                            duration: int, penalty: str):
+    """持久化待验证用户，bot 重启后可恢复。"""
+    from datetime import datetime, timedelta
+    expires = datetime.now() + timedelta(minutes=duration)
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO pending_verifications (chat_id, user_id, msg_id, correct_ans, expires_at) "
+                    "VALUES (%s, %s, %s, %s, %s) "
+                    "ON DUPLICATE KEY UPDATE msg_id=VALUES(msg_id), correct_ans=VALUES(correct_ans), "
+                    "expires_at=VALUES(expires_at)",
+                    (chat_id, user_id, msg_id, correct_ans, expires))
+    except Exception as e:
+        logger.error(f"save_verification err: {e}")
+
+
+async def delete_verification(chat_id: int, user_id: int):
+    """删除验证记录（用户已验证或超时）。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "DELETE FROM pending_verifications WHERE chat_id=%s AND user_id=%s",
+                    (chat_id, user_id))
+    except Exception as e:
+        logger.error(f"delete_verification err: {e}")
+
+
+async def get_all_pending_verifications() -> list:
+    """获取所有未过期的待验证用户记录（用于重启恢复）。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT chat_id, user_id, msg_id, correct_ans, expires_at "
+                    "FROM pending_verifications WHERE expires_at > NOW()")
+                rows = await cur.fetchall()
+                return [{"chat_id": r[0], "user_id": r[1], "msg_id": r[2],
+                         "correct_ans": r[3], "expires_at": r[4]} for r in rows]
+    except Exception as e:
+        logger.error(f"get_all_pending_verifications err: {e}")
+        return []
+
+
 async def log_group_action(chat_id: int, user_id: int, action: str):
     clean_id = _clean_chat_id(chat_id)
     table_name = f"qunzu_{clean_id}"
@@ -517,8 +815,363 @@ async def log_group_action(chat_id: int, user_id: int, action: str):
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(f"""
-                    INSERT INTO `{table_name}` (user_id, action)
+                    INSERT INTO `{_validate_table_name(table_name)}` (user_id, action)
                     VALUES (%s, %s)
                 """, (user_id, action))
+    except Exception as e:
+        logger.error(f"log_group_action err: {e}")
+
+
+# ── 订阅 ──────────────────────────────────────────
+
+async def check_subscription(chat_id: int, feature: str) -> bool:
+    """检查群是否拥有某功能的活跃订阅。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT expires_at FROM group_subscriptions WHERE chat_id=%s AND feature=%s",
+                    (chat_id, feature))
+                row = await cur.fetchone()
+                if row and row[0]:
+                    from datetime import datetime
+                    return row[0] > datetime.now()
+    except Exception as e:
+        logger.error(f"check_subscription err: {e}")
+    return False
+
+
+async def activate_subscription(chat_id: int, feature: str, days: int = 30):
+    """激活/续费群订阅。已有未过期订阅则从过期日续，否则从当前时间开始。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """INSERT INTO group_subscriptions (chat_id, feature, expires_at)
+                       VALUES (%s, %s, DATE_ADD(NOW(), INTERVAL %s DAY))
+                       ON DUPLICATE KEY UPDATE
+                           expires_at = IF(expires_at > NOW(),
+                                           DATE_ADD(expires_at, INTERVAL %s DAY),
+                                           DATE_ADD(NOW(), INTERVAL %s DAY))""",
+                    (chat_id, feature, days, days, days))
+    except Exception as e:
+        logger.error(f"activate_subscription err: {e}")
+
+
+async def save_payment_order(merchant_order_no: str, chat_id: int, user_id: int, feature: str, amount: str, currency: str):
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """INSERT INTO payment_orders (merchant_order_no, chat_id, user_id, feature, amount, currency, status)
+                       VALUES (%s, %s, %s, %s, %s, %s, 'created')
+                       ON DUPLICATE KEY UPDATE status='created'""",
+                    (merchant_order_no, chat_id, user_id, feature, amount, currency))
+    except Exception as e:
+        logger.error(f"save_payment_order err: {e}")
+
+
+async def update_payment_order(merchant_order_no: str, status: str):
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE payment_orders SET status=%s WHERE merchant_order_no=%s",
+                    (status, merchant_order_no))
+    except Exception as e:
+        logger.error(f"update_payment_order err: {e}")
+
+
+async def get_payment_order(merchant_order_no: str) -> dict:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT merchant_order_no, chat_id, user_id, feature, amount, currency, status FROM payment_orders WHERE merchant_order_no=%s",
+                    (merchant_order_no,))
+                row = await cur.fetchone()
+                if row:
+                    return {"merchant_order_no": row[0], "chat_id": row[1], "user_id": row[2],
+                            "feature": row[3], "amount": row[4], "currency": row[5], "status": row[6]}
+    except Exception as e:
+        logger.error(f"get_payment_order err: {e}")
+    return None
+
+
+# ── Bot 克隆 ──────────────────────────────────────
+
+async def add_bot_token(owner_id: int, bot_token: str, bot_username: str = ""):
+    try:
+        from crypto_utils import encrypt_token, hash_token
+        encrypted = encrypt_token(bot_token)
+        token_hash = hash_token(bot_token)
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO bot_tokens (owner_id, bot_token, bot_username, token_hash) VALUES (%s, %s, %s, %s)",
+                    (owner_id, encrypted, bot_username, token_hash))
+    except Exception as e:
+        logger.error(f"add_bot_token err: {e}")
+
+
+async def get_bot_tokens(owner_id: int) -> list:
+    try:
+        from crypto_utils import decrypt_token
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT id, owner_id, bot_token, bot_username, db_name, pid, status, created_at FROM bot_tokens WHERE owner_id=%s ORDER BY id DESC",
+                    (owner_id,))
+                rows = await cur.fetchall()
+                result = []
+                for r in rows:
+                    try:
+                        plain_token = decrypt_token(r[2]) if r[2] else ""
+                    except Exception:
+                        plain_token = r[2]  # fallback: already plain or corrupt
+                    result.append({"id": r[0], "owner_id": r[1], "bot_token": plain_token,
+                                   "bot_username": r[3], "db_name": r[4], "pid": r[5],
+                                   "status": r[6], "created_at": r[7]})
+                return result
+    except Exception as e:
+        logger.error(f"get_bot_tokens err: {e}")
+        return []
+
+
+async def update_bot_token_db(token_id: int, db_name: str):
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("UPDATE bot_tokens SET db_name=%s WHERE id=%s", (db_name, token_id))
+    except Exception as e:
+        logger.error(f"update_bot_token_db err: {e}")
+
+
+async def update_bot_pid(token_id: int, pid: int):
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("UPDATE bot_tokens SET pid=%s WHERE id=%s", (pid, token_id))
+    except Exception as e:
+        logger.error(f"update_bot_pid err: {e}")
+
+
+async def update_bot_status(token_id: int, status: str):
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("UPDATE bot_tokens SET status=%s WHERE id=%s", (status, token_id))
+    except Exception as e:
+        logger.error(f"update_bot_status err: {e}")
+
+
+async def delete_bot_token(token_id: int, owner_id: int):
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("DELETE FROM bot_tokens WHERE id=%s AND owner_id=%s", (token_id, owner_id))
+    except Exception as e:
+        logger.error(f"delete_bot_token err: {e}")
+
+
+async def is_child_bot(bot_token: str) -> bool:
+    """检查 bot token 是否是克隆下级（无克隆和高级版权限）"""
+    try:
+        from crypto_utils import hash_token
+        token_hash = hash_token(bot_token)
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                # 优先走 token_hash 索引查找（加密后）
+                await cur.execute("SELECT bot_token, token_hash FROM bot_tokens WHERE token_hash=%s", (token_hash,))
+                row = await cur.fetchone()
+                if row:
+                    return True
+                # 向后兼容：旧数据未加密，直接匹配明文列
+                await cur.execute("SELECT id FROM bot_tokens WHERE bot_token=%s AND (token_hash='' OR token_hash IS NULL)", (bot_token,))
+                return await cur.fetchone() is not None
     except Exception:
-        pass
+        return False
+
+
+# ── 贴纸库 ──────────────────────────────────────
+
+async def add_sticker(file_id: str, emoji: str, added_by: int):
+    """存贴纸，file_id 唯一，重复则更新 emoji"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO stickers (file_id, emoji, added_by) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE emoji=VALUES(emoji)",
+                    (file_id, emoji, added_by))
+    except Exception as e:
+        logger.error(f"add_sticker err: {e}")
+
+
+async def get_sticker_by_emoji(emoji: str) -> str:
+    """按 emoji 随机取一个贴纸 file_id，找不到返回空"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT file_id FROM stickers WHERE emoji=%s ORDER BY RAND() LIMIT 1",
+                    (emoji,))
+                row = await cur.fetchone()
+                return row[0] if row else ""
+    except Exception as e:
+        logger.error(f"get_sticker_by_emoji err: {e}")
+        return ""
+
+
+async def get_random_sticker() -> str:
+    """随机返回一个贴纸 file_id"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT file_id FROM stickers ORDER BY RAND() LIMIT 1")
+                row = await cur.fetchone()
+                return row[0] if row else ""
+    except Exception as e:
+        logger.error(f"get_random_sticker err: {e}")
+        return ""
+
+
+async def get_all_sticker_emojis() -> list:
+    """获取所有已存贴纸的 emoji 列表（去重）"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT DISTINCT emoji FROM stickers ORDER BY emoji")
+                return [r[0] for r in await cur.fetchall()]
+    except Exception as e:
+        logger.error(f"get_all_sticker_emojis err: {e}")
+        return []
+
+
+# ── 发言检查 ─────────────────────────────────────
+
+async def get_message_check_settings(chat_id: int) -> dict:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT enabled, require_last_name, require_username, require_photo, "
+                    "require_premium, require_channel, channel_username, mute_duration, warn_delete, penalty "
+                    "FROM group_message_check WHERE chat_id=%s", (chat_id,))
+                row = await cur.fetchone()
+                if row:
+                    return {
+                        "enabled": bool(row[0]), "require_last_name": bool(row[1]),
+                        "require_username": bool(row[2]), "require_photo": bool(row[3]),
+                        "require_premium": bool(row[4]), "require_channel": bool(row[5]),
+                        "channel_username": row[6] or "", "mute_duration": row[7] or 600,
+                        "warn_delete": row[8] or 30, "penalty": row[9] or "mute"
+                    }
+    except Exception as e:
+        logger.error(f"get_message_check_settings err: {e}")
+    return {"enabled": False, "require_last_name": False, "require_username": False,
+            "require_photo": False, "require_premium": False, "require_channel": False,
+            "channel_username": "", "mute_duration": 600, "warn_delete": 30, "penalty": "mute"}
+
+
+async def update_message_check_settings(chat_id: int, **kwargs):
+    if not kwargs:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("INSERT IGNORE INTO group_message_check (chat_id) VALUES (%s)", (chat_id,))
+                parts, vals = [], []
+                for k, v in kwargs.items():
+                    parts.append(f"{validate_column_name(k)}=%s")
+                    vals.append(v)
+                vals.append(chat_id)
+                await cur.execute(f"UPDATE group_message_check SET {', '.join(parts)} WHERE chat_id=%s", vals)
+    except Exception as e:
+        logger.error(f"update_message_check_settings err: {e}")
+
+
+# ── 开关群 ──────────────────────────────────────
+
+async def get_toggle_settings(chat_id: int) -> dict:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT enabled, open_keyword, open_text, open_media_type, open_media_file_id, "
+                    "open_buttons_text, close_keyword, close_text, close_media_type, close_media_file_id, "
+                    "close_buttons_text FROM group_toggle WHERE chat_id=%s", (chat_id,))
+                row = await cur.fetchone()
+                if row:
+                    return {
+                        "enabled": bool(row[0]), "open_keyword": row[1] or "",
+                        "open_text": row[2] or "", "open_media_type": row[3] or "",
+                        "open_media_file_id": row[4] or "", "open_buttons_text": row[5] or "",
+                        "close_keyword": row[6] or "", "close_text": row[7] or "",
+                        "close_media_type": row[8] or "", "close_media_file_id": row[9] or "",
+                        "close_buttons_text": row[10] or ""
+                    }
+    except Exception as e:
+        logger.error(f"get_toggle_settings err: {e}")
+    return {"enabled": False, "open_keyword": "", "open_text": "", "open_media_type": "",
+            "open_media_file_id": "", "open_buttons_text": "", "close_keyword": "",
+            "close_text": "", "close_media_type": "", "close_media_file_id": "", "close_buttons_text": ""}
+
+
+async def update_toggle_settings(chat_id: int, **kwargs):
+    if not kwargs:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("INSERT IGNORE INTO group_toggle (chat_id) VALUES (%s)", (chat_id,))
+                parts, vals = [], []
+                for k, v in kwargs.items():
+                    parts.append(f"{validate_column_name(k)}=%s")
+                    vals.append(v)
+                vals.append(chat_id)
+                await cur.execute(f"UPDATE group_toggle SET {', '.join(parts)} WHERE chat_id=%s", vals)
+    except Exception as e:
+        logger.error(f"update_toggle_settings err: {e}")
+
+
+# ── 反垃圾 ──────────────────────────────────────
+
+async def get_antispam_settings(chat_id: int) -> dict:
+    defaults = {"enabled": False, "block_contact": False, "block_location": False,
+                "block_channel_send": False, "block_channel_fwd": False, "block_external_ref": False,
+                "block_exe": False, "block_mention": False, "block_links": False,
+                "block_long_links": False, "block_visitor_bots": False, "block_flood": False,
+                "flood_timeout": 10, "flood_count": 5, "penalty": "delete", "mute_duration": 3600,
+                "whitelist": "", "warn_delete": 30}
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT enabled, block_contact, block_location, block_channel_send, block_channel_fwd, "
+                    "block_external_ref, block_exe, block_mention, block_links, block_long_links, "
+                    "block_visitor_bots, block_flood, flood_timeout, flood_count, penalty, mute_duration, whitelist, warn_delete "
+                    "FROM group_antispam WHERE chat_id=%s", (chat_id,))
+                row = await cur.fetchone()
+                if row:
+                    keys = list(defaults.keys())
+                    return {keys[i]: row[i] if row[i] is not None else defaults[keys[i]] for i in range(len(keys))}
+    except Exception as e:
+        logger.error(f"get_antispam_settings err: {e}")
+    return defaults
+
+
+async def update_antispam_settings(chat_id: int, **kwargs):
+    if not kwargs:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("INSERT IGNORE INTO group_antispam (chat_id) VALUES (%s)", (chat_id,))
+                parts, vals = [], []
+                for k, v in kwargs.items():
+                    parts.append(f"{validate_column_name(k)}=%s")
+                    vals.append(v)
+                vals.append(chat_id)
+                await cur.execute(f"UPDATE group_antispam SET {', '.join(parts)} WHERE chat_id=%s", vals)
+    except Exception as e:
+        logger.error(f"update_antispam_settings err: {e}")

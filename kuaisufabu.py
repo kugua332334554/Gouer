@@ -1,11 +1,13 @@
 import logging
 import random
 import string
+import config
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
 from telegram.ext import ContextTypes
-from telegram import InlineQueryResultArticle, InputTextMessageContent
+from telegram import InlineQueryResultArticle, InputTextMessageContent, InlineQueryResultCachedPhoto, InlineQueryResultCachedVideo, InlineQueryResultCachedDocument, InlineQueryResultCachedAudio, InlineQueryResultCachedVoice, InlineQueryResultCachedGif, InlineQueryResultCachedMpeg4Gif
 import database
-from lang import t
+from database import validate_column_name
+from lang import t, t_sync, DEFAULT_LANG
 
 logger = logging.getLogger(__name__)
 logger.info("kuaisufabu module loaded")
@@ -82,7 +84,7 @@ async def update_kuaisu(ks_id: int, **kwargs):
             async with conn.cursor() as cur:
                 parts, vals = [], []
                 for k, v in kwargs.items():
-                    parts.append(f"{k}=%s")
+                    parts.append(f"{validate_column_name(k)}=%s")
                     vals.append(v)
                 vals.append(ks_id)
                 await cur.execute(f"UPDATE group_kuaisufabu SET {', '.join(parts)} WHERE id = %s", vals)
@@ -153,17 +155,17 @@ def set_bot_username(username: str):
     _bot_username = username
 
 
-def get_kuaisu_list_keyboard(items: list) -> InlineKeyboardMarkup:
+def get_kuaisu_list_keyboard(items: list, lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
     keyboard = []
     for item in items:
         status_icon = CHECK_EMOJI_ID if item["status"] else CROSS_EMOJI_ID
         keyboard.append([
             InlineKeyboardButton(item["name"], callback_data=f"kf_detail_{item['creator_id']}_{item['id']}", icon_custom_emoji_id=SEND_EMOJI_ID),
-            InlineKeyboardButton("分享", switch_inline_query=item["keyword"]),
-            InlineKeyboardButton("删", callback_data=f"kf_delete_{item['creator_id']}_{item['id']}", icon_custom_emoji_id=DELETE_EMOJI_ID)
+            InlineKeyboardButton(t_sync(lang, "share"), switch_inline_query=item["keyword"]),
+            InlineKeyboardButton(t_sync(lang, "delete_short"), callback_data=f"kf_delete_{item['creator_id']}_{item['id']}", icon_custom_emoji_id=DELETE_EMOJI_ID)
         ])
-    keyboard.append([InlineKeyboardButton("添加快捷消息", callback_data="kf_create", icon_custom_emoji_id=ADD_EMOJI_ID)])
-    keyboard.append([InlineKeyboardButton("« 返回主菜单", callback_data="back_to_main")])
+    keyboard.append([InlineKeyboardButton(t_sync(lang, "kuaisu_add"), callback_data="kf_create", icon_custom_emoji_id=ADD_EMOJI_ID)])
+    keyboard.append([InlineKeyboardButton("« " + t_sync(lang, "back_main"), callback_data="back_to_main")])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -184,27 +186,28 @@ def get_kuaisu_detail_text(item: dict) -> str:
     )
 
 
-def get_kuaisu_detail_keyboard(ks_id: int, item: dict) -> InlineKeyboardMarkup:
+def get_kuaisu_detail_keyboard(ks_id: int, item: dict, lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
     status_icon = CHECK_EMOJI_ID if item["status"] else CROSS_EMOJI_ID
     cid = item["creator_id"]
+    toggle_text = t_sync(lang, "close_btn") if item["status"] else t_sync(lang, "open_btn")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("关闭" if item["status"] else "开启", callback_data=f"kf_toggle_{cid}_{ks_id}", icon_custom_emoji_id=CROSS_EMOJI_ID if item["status"] else CHECK_EMOJI_ID)],
-        [InlineKeyboardButton("修改文本", callback_data=f"kf_edit_text_{cid}_{ks_id}", icon_custom_emoji_id=TEXT_EMOJI_ID),
-         InlineKeyboardButton("修改媒体", callback_data=f"kf_edit_media_{cid}_{ks_id}", icon_custom_emoji_id=MEDIA_EMOJI_ID)],
-        [InlineKeyboardButton("修改按钮", callback_data=f"kf_edit_btn_{cid}_{ks_id}", icon_custom_emoji_id=BTN_EMOJI_ID),
-         InlineKeyboardButton("修改信息", callback_data=f"kf_edit_info_{cid}_{ks_id}", icon_custom_emoji_id=ADD_EMOJI_ID)],
-        [InlineKeyboardButton("预览", callback_data=f"kf_preview_{cid}_{ks_id}", icon_custom_emoji_id=PREVIEW_EMOJI_ID)],
-        [InlineKeyboardButton("删除", callback_data=f"kf_delete_{cid}_{ks_id}", icon_custom_emoji_id=DELETE_EMOJI_ID)],
-        [InlineKeyboardButton("« 返回列表", callback_data="post_fast")]
+        [InlineKeyboardButton(toggle_text, callback_data=f"kf_toggle_{cid}_{ks_id}", icon_custom_emoji_id=CROSS_EMOJI_ID if item["status"] else CHECK_EMOJI_ID)],
+        [InlineKeyboardButton(t_sync(lang, "edit_text_btn"), callback_data=f"kf_edit_text_{cid}_{ks_id}", icon_custom_emoji_id=TEXT_EMOJI_ID),
+         InlineKeyboardButton(t_sync(lang, "edit_media_btn"), callback_data=f"kf_edit_media_{cid}_{ks_id}", icon_custom_emoji_id=MEDIA_EMOJI_ID)],
+        [InlineKeyboardButton(t_sync(lang, "edit_btn_btn"), callback_data=f"kf_edit_btn_{cid}_{ks_id}", icon_custom_emoji_id=BTN_EMOJI_ID),
+         InlineKeyboardButton(t_sync(lang, "edit_info_btn"), callback_data=f"kf_edit_info_{cid}_{ks_id}", icon_custom_emoji_id=ADD_EMOJI_ID)],
+        [InlineKeyboardButton(t_sync(lang, "preview"), callback_data=f"kf_preview_{cid}_{ks_id}", icon_custom_emoji_id=PREVIEW_EMOJI_ID)],
+        [InlineKeyboardButton(t_sync(lang, "delete"), callback_data=f"kf_delete_{cid}_{ks_id}", icon_custom_emoji_id=DELETE_EMOJI_ID)],
+        [InlineKeyboardButton("« " + t_sync(lang, "back_list"), callback_data="post_fast")]
     ])
 
 
-def get_cancel_keyboard(ks_id: int = 0, cid: int = 0) -> InlineKeyboardMarkup:
+def get_cancel_keyboard(ks_id: int = 0, cid: int = 0, lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
     if ks_id:
         cb = f"kf_detail_{cid}_{ks_id}"
     else:
         cb = "post_fast"
-    return InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=cb)]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("« " + t_sync(lang, "cancel"), callback_data=cb)]])
 
 
 async def send_kuaisu_panel(context, user_id: int, target_chat_id: int):
@@ -212,7 +215,7 @@ async def send_kuaisu_panel(context, user_id: int, target_chat_id: int):
     global _bot_username
     if not _bot_username:
         try:
-            me = await context.bot.get_me()
+            me = await config.get_me(context.bot)
             _bot_username = me.username
         except Exception:
             pass
@@ -232,7 +235,7 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
         global _bot_username
         if not _bot_username:
             try:
-                me = await context.bot.get_me()
+                me = await config.get_me(context.bot)
                 _bot_username = me.username
             except Exception:
                 pass
@@ -291,7 +294,7 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
         await query.answer()
         _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_media", "ks_id": ks_id}
         kb = get_cancel_keyboard(ks_id, int(parts[3]))
-        await query.message.reply_html(f'<tg-emoji emoji-id="{MEDIA_EMOJI_ID}">🖼</tg-emoji> <b>编辑媒体</b>\n\n请发送图片或视频，大小不超过 <b>5MB</b>\n发送 <code>清空</code> 清除', reply_markup=kb)
+        await query.message.reply_html(f'<tg-emoji emoji-id="{MEDIA_EMOJI_ID}">🖼</tg-emoji> <b>编辑媒体</b>\n\n请发送图片、视频、文件、音频、GIF、语音或视频备注，大小不超过 <b>5MB</b>\n发送 <code>清空</code> 清除', reply_markup=kb)
         return
 
     if data.startswith("kf_edit_btn_"):
@@ -300,7 +303,7 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
         await query.answer()
         _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_buttons", "ks_id": ks_id}
         kb = get_cancel_keyboard(ks_id, int(parts[3]))
-        await query.message.reply_html(f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑按钮</b>\n\n格式：<b>颜色（可选）-会员表情ID-文字-链接</b>\n用 <b>&&</b> 分隔同行\n\n示例：\n<code>红色-按钮1-https://a.com && 蓝色-按钮2-https://b.com</code>\n发送 <code>清空</code> 清除', reply_markup=kb)
+        await query.message.reply_html(f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑按钮</b>\n\n格式：<b>颜色（可选）-按钮文字-链接</b>\n颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n用 <b>&&</b> 分隔同行\n\n示例：\n<code>红色-按钮1-https://a.com && 蓝色-按钮2-https://b.com</code>\n发送 <code>清空</code> 清除', reply_markup=kb)
         return
 
     if data.startswith("kf_edit_info_"):
@@ -324,10 +327,22 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
         try:
             text = item.get("content_text") or item["name"]
             markup = parse_welcome_buttons(item.get("buttons_text"))
-            if item.get("media_type") == "photo" and item.get("media_file_id"):
-                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=item["media_file_id"], caption=text, parse_mode="HTML", reply_markup=markup)
-            elif item.get("media_type") == "video" and item.get("media_file_id"):
-                await context.bot.send_video(chat_id=update.effective_chat.id, video=item["media_file_id"], caption=text, parse_mode="HTML", reply_markup=markup)
+            media_type = item.get("media_type", "")
+            media_file_id = item.get("media_file_id", "")
+            if media_type == "photo" and media_file_id:
+                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=media_file_id, caption=text, parse_mode="HTML", reply_markup=markup)
+            elif media_type == "video" and media_file_id:
+                await context.bot.send_video(chat_id=update.effective_chat.id, video=media_file_id, caption=text, parse_mode="HTML", reply_markup=markup)
+            elif media_type == "document" and media_file_id:
+                await context.bot.send_document(chat_id=update.effective_chat.id, document=media_file_id, caption=text, parse_mode="HTML", reply_markup=markup)
+            elif media_type == "audio" and media_file_id:
+                await context.bot.send_audio(chat_id=update.effective_chat.id, audio=media_file_id, caption=text, parse_mode="HTML", reply_markup=markup)
+            elif media_type == "animation" and media_file_id:
+                await context.bot.send_animation(chat_id=update.effective_chat.id, animation=media_file_id, caption=text, parse_mode="HTML", reply_markup=markup)
+            elif media_type == "voice" and media_file_id:
+                await context.bot.send_voice(chat_id=update.effective_chat.id, voice=media_file_id, caption=text, parse_mode="HTML", reply_markup=markup)
+            elif media_type == "video_note" and media_file_id:
+                await context.bot.send_video_note(chat_id=update.effective_chat.id, video_note=media_file_id, reply_markup=markup)
             else:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text=text, parse_mode="HTML", reply_markup=markup)
         except Exception as e:
@@ -401,10 +416,25 @@ async def kuaisufabu_input_handler(update: Update, context: ContextTypes.DEFAULT
         elif message.video:
             video = message.video
             file_size, media_type, media_file_id = video.file_size or 0, "video", video.file_id
+        elif message.document:
+            doc = message.document
+            file_size, media_type, media_file_id = doc.file_size or 0, "document", doc.file_id
+        elif message.audio:
+            audio = message.audio
+            file_size, media_type, media_file_id = audio.file_size or 0, "audio", audio.file_id
+        elif message.animation:
+            animation = message.animation
+            file_size, media_type, media_file_id = animation.file_size or 0, "animation", animation.file_id
+        elif message.voice:
+            voice = message.voice
+            file_size, media_type, media_file_id = voice.file_size or 0, "voice", voice.file_id
+        elif message.video_note:
+            video_note = message.video_note
+            file_size, media_type, media_file_id = video_note.file_size or 0, "video_note", video_note.file_id
         else:
             item = await get_kuaisu_by_id(ks_id)
             kb = get_cancel_keyboard(ks_id, item["creator_id"] if item else 0)
-            await message.reply_html(f"{EMOJI_WARN} 未识别到有效图片或视频！", reply_markup=kb)
+            await message.reply_html(f"{EMOJI_WARN} 未识别到有效的图片、视频或文件！\n\n支持的格式：图片、视频、文件、音频、GIF、语音、视频备注", reply_markup=kb)
             return
         if file_size > 5 * 1024 * 1024:
             item = await get_kuaisu_by_id(ks_id)
@@ -452,7 +482,7 @@ async def kuaisufabu_inline_handler(update: Update, context: ContextTypes.DEFAUL
     global _bot_username
     if not _bot_username:
         try:
-            me = await context.bot.get_me()
+            me = await config.get_me(context.bot)
             _bot_username = me.username
         except Exception:
             pass
@@ -462,15 +492,77 @@ async def kuaisufabu_inline_handler(update: Update, context: ContextTypes.DEFAUL
         text = item.get("content_text") or item["name"]
         markup = parse_welcome_buttons(item.get("buttons_text"))
         desc_parts = [item["keyword"]]
-        if item.get("media_type") == "photo":
+        media_type = item.get("media_type", "")
+        media_file_id = item.get("media_file_id", "")
+        if media_type == "photo":
             desc_parts.append("📷")
-        elif item.get("media_type") == "video":
+        elif media_type == "video":
             desc_parts.append("🎬")
-        results.append(InlineQueryResultArticle(
-            id=str(item["id"]), title=item["name"], description=" ".join(desc_parts),
-            input_message_content=InputTextMessageContent(message_text=text, parse_mode="HTML"),
-            reply_markup=markup
-        ))
+        elif media_type == "document":
+            desc_parts.append("📄")
+        elif media_type == "audio":
+            desc_parts.append("🎵")
+        elif media_type == "animation":
+            desc_parts.append("🎞")
+        elif media_type == "voice":
+            desc_parts.append("🎤")
+        elif media_type == "video_note":
+            desc_parts.append("🔄")
+
+        if media_type == "photo" and media_file_id:
+            results.append(InlineQueryResultCachedPhoto(
+                id=str(item["id"]), title=item["name"], description=" ".join(desc_parts),
+                photo_file_id=media_file_id,
+                caption=text, parse_mode="HTML",
+                reply_markup=markup
+            ))
+        elif media_type == "video" and media_file_id:
+            results.append(InlineQueryResultCachedVideo(
+                id=str(item["id"]), title=item["name"], description=" ".join(desc_parts),
+                video_file_id=media_file_id,
+                caption=text, parse_mode="HTML",
+                reply_markup=markup
+            ))
+        elif media_type == "document" and media_file_id:
+            results.append(InlineQueryResultCachedDocument(
+                id=str(item["id"]), title=item["name"], description=" ".join(desc_parts),
+                document_file_id=media_file_id,
+                caption=text, parse_mode="HTML",
+                reply_markup=markup
+            ))
+        elif media_type == "audio" and media_file_id:
+            results.append(InlineQueryResultCachedAudio(
+                id=str(item["id"]), title=item["name"], description=" ".join(desc_parts),
+                audio_file_id=media_file_id,
+                caption=text, parse_mode="HTML",
+                reply_markup=markup
+            ))
+        elif media_type == "animation" and media_file_id:
+            results.append(InlineQueryResultCachedGif(
+                id=str(item["id"]), title=item["name"], description=" ".join(desc_parts),
+                gif_file_id=media_file_id,
+                caption=text, parse_mode="HTML",
+                reply_markup=markup
+            ))
+        elif media_type == "voice" and media_file_id:
+            results.append(InlineQueryResultCachedVoice(
+                id=str(item["id"]), title=item["name"], description=" ".join(desc_parts),
+                voice_file_id=media_file_id,
+                reply_markup=markup
+            ))
+        elif media_type == "video_note" and media_file_id:
+            # video_note has no cached inline result type; fall back to text
+            results.append(InlineQueryResultArticle(
+                id=str(item["id"]), title=item["name"], description=" ".join(desc_parts),
+                input_message_content=InputTextMessageContent(message_text=text, parse_mode="HTML"),
+                reply_markup=markup
+            ))
+        else:
+            results.append(InlineQueryResultArticle(
+                id=str(item["id"]), title=item["name"], description=" ".join(desc_parts),
+                input_message_content=InputTextMessageContent(message_text=text, parse_mode="HTML"),
+                reply_markup=markup
+            ))
     try:
         await update.inline_query.answer(results, cache_time=1, is_personal=True)
     except Exception as e:

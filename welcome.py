@@ -4,6 +4,7 @@ import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from database import get_welcome_settings, update_welcome_settings
+from lang import t_sync, DEFAULT_LANG
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,6 @@ def preprocess_button_text(message) -> str:
     entities = message.entities or []
     if not text or not entities:
         return text
-    utf16_bytes = text.encode("utf-16-le")
     custom_emoji_entities = []
     for e in entities:
         etype_str = str(getattr(e, "type", ""))
@@ -100,23 +100,24 @@ def preprocess_button_text(message) -> str:
             custom_emoji_entities.append((e.offset, e.length, str(emoji_id)))
     if not custom_emoji_entities:
         return text
+    # 按 offset 倒序处理，每次用 bytearray 原地替换 UTF-16 字节
     custom_emoji_entities.sort(key=lambda x: x[0], reverse=True)
+    utf16 = bytearray(text.encode("utf-16-le"))
     for offset, length, emoji_id in custom_emoji_entities:
+        emoji_id_utf16 = emoji_id.encode("utf-16-le")
         start = offset * 2
         end = (offset + length) * 2
-        before = utf16_bytes[:start].decode("utf-16-le")
-        after = utf16_bytes[end:].decode("utf-16-le")
-        text = before + emoji_id + after
-    return text
+        utf16[start:end] = emoji_id_utf16
+    return utf16.decode("utf-16-le")
 
 
 def parse_welcome_buttons(buttons_text: str):
     if not buttons_text:
         return None
     color_map = {
-        "红色": "danger",
-        "绿色": "success",
-        "蓝色": "primary"
+        "红色": "danger", "红": "danger",
+        "绿色": "success", "绿": "success",
+        "蓝色": "primary", "蓝": "primary",
     }
     keyboard = []
     lines = buttons_text.strip().split("\n")
@@ -182,50 +183,49 @@ def get_welcome_text(state: dict) -> str:
     )
 
 
-def get_welcome_keyboard(chat_id: str, state: dict) -> InlineKeyboardMarkup:
+def get_welcome_keyboard(chat_id: str, state: dict, lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
     row1 = [
-        InlineKeyboardButton("状态:", callback_data="noop"),
+        InlineKeyboardButton(t_sync(lang, "status_label"), callback_data="noop"),
         InlineKeyboardButton(
-            "开启",
+            t_sync(lang, "enable_btn"),
             callback_data=f"wel_set_status_1_{chat_id}",
             style="primary" if state['status'] else "default",
             icon_custom_emoji_id=CHECK_EMOJI_ID if state['status'] else None
         ),
         InlineKeyboardButton(
-            "关闭",
+            t_sync(lang, "disable_btn"),
             callback_data=f"wel_set_status_0_{chat_id}",
             style="primary" if not state['status'] else "default",
             icon_custom_emoji_id=CROSS_EMOJI_ID if not state['status'] else None
         )
     ]
-    row2 = [InlineKeyboardButton("删除消息(分钟)", callback_data="noop")]
+    row2 = [InlineKeyboardButton(t_sync(lang, "del_msg_label"), callback_data="noop")]
     def dt_kwargs(val):
         if state['delete_time'] == val:
             return {"style": "primary", "icon_custom_emoji_id": CHECK_EMOJI_ID}
         return {"style": "default"}
     row3 = [
-        InlineKeyboardButton("否", callback_data=f"wel_set_dt_0_{chat_id}", **dt_kwargs(0)),
+        InlineKeyboardButton(t_sync(lang, "no"), callback_data=f"wel_set_dt_0_{chat_id}", **dt_kwargs(0)),
         InlineKeyboardButton("1", callback_data=f"wel_set_dt_1_{chat_id}", **dt_kwargs(1)),
         InlineKeyboardButton("5", callback_data=f"wel_set_dt_5_{chat_id}", **dt_kwargs(5)),
         InlineKeyboardButton("10", callback_data=f"wel_set_dt_10_{chat_id}", **dt_kwargs(10))
     ]
     row4 = [
         InlineKeyboardButton(
-            "删除上一条",
+            t_sync(lang, "del_last_btn"),
             callback_data=f"wel_set_dellast_{chat_id}",
             style="primary" if state['delete_last'] else "default",
             icon_custom_emoji_id=CHECK_EMOJI_ID if state['delete_last'] else None
         )
     ]
-    row5 = [InlineKeyboardButton("预览消息", callback_data=f"wel_preview_{chat_id}", icon_custom_emoji_id="5960714428394507968")]
+    row5 = [InlineKeyboardButton(t_sync(lang, "preview"), callback_data=f"wel_preview_{chat_id}", icon_custom_emoji_id="5960714428394507968")]
     row6 = [
-        InlineKeyboardButton("修改文本", callback_data=f"wel_edit_text_{chat_id}", icon_custom_emoji_id="5884510167986343350"),
-        InlineKeyboardButton("修改媒体", callback_data=f"wel_edit_media_{chat_id}", icon_custom_emoji_id="5395440575543520059")
+        InlineKeyboardButton(t_sync(lang, "edit_text_btn"), callback_data=f"wel_edit_text_{chat_id}", icon_custom_emoji_id="5884510167986343350"),
+        InlineKeyboardButton(t_sync(lang, "edit_media_btn"), callback_data=f"wel_edit_media_{chat_id}", icon_custom_emoji_id="5395440575543520059")
     ]
-    row7 = [InlineKeyboardButton("修改按钮", callback_data=f"wel_edit_btn_{chat_id}", icon_custom_emoji_id="5879841310902324730")]
-    row8 = [InlineKeyboardButton("« 返回", callback_data=f"manage_group_{chat_id}")]
+    row7 = [InlineKeyboardButton(t_sync(lang, "edit_btn_btn"), callback_data=f"wel_edit_btn_{chat_id}", icon_custom_emoji_id="5879841310902324730")]
+    row8 = [InlineKeyboardButton("« " + t_sync(lang, "back"), callback_data=f"manage_group_{chat_id}")]
     return InlineKeyboardMarkup([row1, row2, row3, row4, row5, row6, row7, row8])
-
 
 async def send_welcome_panel(context: ContextTypes.DEFAULT_TYPE, chat_id: int, target_chat_id: int):
     state = await get_welcome_settings(chat_id)
@@ -316,19 +316,20 @@ async def welcome_callback_handler(update: Update, context: ContextTypes.DEFAULT
             await query.message.reply_html(prompt, reply_markup=reply_markup)
 
         elif sub_action == "media":
-            clear_btn = InlineKeyboardButton("清空媒体", callback_data=f"wel_clear_media_{chat_id}", icon_custom_emoji_id=DELETE_EMOJI_ID)
-            cancel_btn = InlineKeyboardButton("« 取消", callback_data=f"wel_cancel_{chat_id}")
+            clear_btn = InlineKeyboardButton(t_sync("zh", "clear_media"), callback_data=f"wel_clear_media_{chat_id}", icon_custom_emoji_id=DELETE_EMOJI_ID)
+            cancel_btn = InlineKeyboardButton("« " + t_sync("zh", "cancel"), callback_data=f"wel_cancel_{chat_id}")
             reply_markup = InlineKeyboardMarkup([[clear_btn], [cancel_btn]])
-            prompt = "欢迎媒体支持：请发送图片或视频，文件大小不超过 5MB"
+            prompt = "欢迎媒体支持：请发送图片、视频、文件、音频、GIF、语音或视频备注，文件大小不超过 5MB"
             await query.message.reply_html(prompt, reply_markup=reply_markup)
 
         elif sub_action == "btn":
             prompt = (
-                "请发送按钮配置，格式：颜色（可选）-会员图标/表情（可选）-按钮文字-链接地址\n\n"
+                "请发送按钮配置，格式：颜色（可选）-按钮文字-链接地址\n\n"
                 "提示：您可以直接在消息中插入/选择 Telegram 会员表情，系统将自动识别！\n\n"
+                "颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n"
                 "用 && 分隔同行多个按钮，换行分行\n\n"
                 "示例：\n"
-                "官方频道-https://t.me/channel\n"
+                "蓝色-官方频道-https://t.me/channel\n"
                 "红色-按钮1-https://a.com && 按钮2-https://b.com"
             )
             await query.message.reply_html(prompt, reply_markup=reply_markup)
@@ -373,9 +374,34 @@ async def welcome_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
             file_size = video.file_size or 0
             media_type = "video"
             media_file_id = video.file_id
+        elif message.document:
+            doc = message.document
+            file_size = doc.file_size or 0
+            media_type = "document"
+            media_file_id = doc.file_id
+        elif message.audio:
+            audio = message.audio
+            file_size = audio.file_size or 0
+            media_type = "audio"
+            media_file_id = audio.file_id
+        elif message.animation:
+            animation = message.animation
+            file_size = animation.file_size or 0
+            media_type = "animation"
+            media_file_id = animation.file_id
+        elif message.voice:
+            voice = message.voice
+            file_size = voice.file_size or 0
+            media_type = "voice"
+            media_file_id = voice.file_id
+        elif message.video_note:
+            video_note = message.video_note
+            file_size = video_note.file_size or 0
+            media_type = "video_note"
+            media_file_id = video_note.file_id
         else:
             await message.reply_html(
-                f'<tg-emoji emoji-id="{WARN_EMOJI_ID}">⚠️</tg-emoji> 未识别到有效的图片或视频，请重新发送！'
+                f'<tg-emoji emoji-id="{WARN_EMOJI_ID}">⚠️</tg-emoji> 未识别到有效的图片、视频或文件！请重新发送！'
             )
             return
         if file_size > 5 * 1024 * 1024:
@@ -389,7 +415,7 @@ async def welcome_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
         )
         await send_welcome_panel(context, chat_id, update.effective_chat.id)
 
-    elif input_type == "buttons":
+    elif input_type == "btn":
         raw_text = message.text or ""
         if raw_text.strip() in ["清空", "清除", "clear"]:
             await update_welcome_settings(chat_id, buttons_text="")
@@ -454,6 +480,44 @@ async def send_welcome_message(context: ContextTypes.DEFAULT_TYPE, chat, user, i
                 video=media_file_id,
                 caption=rendered_text,
                 parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+        elif media_type == "document" and media_file_id:
+            sent_msg = await context.bot.send_document(
+                chat_id=send_chat_id,
+                document=media_file_id,
+                caption=rendered_text,
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+        elif media_type == "audio" and media_file_id:
+            sent_msg = await context.bot.send_audio(
+                chat_id=send_chat_id,
+                audio=media_file_id,
+                caption=rendered_text,
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+        elif media_type == "animation" and media_file_id:
+            sent_msg = await context.bot.send_animation(
+                chat_id=send_chat_id,
+                animation=media_file_id,
+                caption=rendered_text,
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+        elif media_type == "voice" and media_file_id:
+            sent_msg = await context.bot.send_voice(
+                chat_id=send_chat_id,
+                voice=media_file_id,
+                caption=rendered_text,
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+        elif media_type == "video_note" and media_file_id:
+            sent_msg = await context.bot.send_video_note(
+                chat_id=send_chat_id,
+                video_note=media_file_id,
                 reply_markup=reply_markup
             )
         else:

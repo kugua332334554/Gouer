@@ -5,6 +5,7 @@ import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember, ChatPermissions
 from telegram.ext import ContextTypes
 import database
+from database import validate_column_name
 from lang import t
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ async def update_night_settings(chat_id: int, **kwargs):
                 set_parts = []
                 values = []
                 for k, v in kwargs.items():
-                    set_parts.append(f"{k}=%s")
+                    set_parts.append(f"{validate_column_name(k)}=%s")
                     values.append(v)
                 values.append(chat_id)
                 sql = f"UPDATE group_night SET {', '.join(set_parts)} WHERE chat_id = %s"
@@ -164,7 +165,7 @@ async def night_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     data = query.data
 
     parts = data.split("_")
-    chat_id = parts[-1] if data.startswith("night_sethour_") else parts[2]
+    chat_id = parts[2]
 
     try:
         member = await context.bot.get_chat_member(int(chat_id), user_id)
@@ -260,16 +261,13 @@ async def apply_night_mode(context, chat_id: int, settings: dict):
         else:
             in_night = current_hour >= start_h or current_hour < end_h
         if in_night:
-            for admin in admins:
-                if admin.user.is_bot or admin.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
-                    continue
-                try:
-                    await context.bot.restrict_chat_member(
-                        chat_id=chat_id, user_id=admin.user.id,
-                        permissions=ChatPermissions(can_send_messages=False)
-                    )
-                except Exception:
-                    pass
+            try:
+                await context.bot.set_chat_permissions(
+                    chat_id=chat_id,
+                    permissions=ChatPermissions(can_send_messages=False)
+                )
+            except Exception:
+                pass
             if settings.get("notify", True):
                 try:
                     await context.bot.send_message(
@@ -287,22 +285,15 @@ async def apply_night_mode(context, chat_id: int, settings: dict):
 
 async def remove_night_mode(context, chat_id: int):
     try:
-        admins = await context.bot.get_chat_administrators(chat_id)
-        for admin in admins:
-            if admin.user.is_bot or admin.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
-                continue
-            try:
-                await context.bot.restrict_chat_member(
-                    chat_id=chat_id, user_id=admin.user.id,
-                    permissions=ChatPermissions(
-                        can_send_messages=True, can_send_audios=True, can_send_documents=True,
-                        can_send_photos=True, can_send_videos=True, can_send_video_notes=True,
-                        can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True,
-                        can_add_web_page_previews=True
-                    )
-                )
-            except Exception:
-                pass
+        await context.bot.set_chat_permissions(
+            chat_id=chat_id,
+            permissions=ChatPermissions(
+                can_send_messages=True, can_send_audios=True, can_send_documents=True,
+                can_send_photos=True, can_send_videos=True, can_send_video_notes=True,
+                can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True,
+                can_add_web_page_previews=True
+            )
+        )
     except Exception as e:
         logger.error(f"remove_night_mode err: {e}", exc_info=True)
 
@@ -328,17 +319,13 @@ async def night_scheduler(context: ContextTypes.DEFAULT_TYPE):
                 is_end_minute = (current_hour == end_h and current_minute == 0)
 
                 if in_night:
-                    admins = await context.bot.get_chat_administrators(chat_id)
-                    for admin in admins:
-                        if admin.user.is_bot or admin.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
-                            continue
-                        try:
-                            await context.bot.restrict_chat_member(
-                                chat_id=chat_id, user_id=admin.user.id,
-                                permissions=ChatPermissions(can_send_messages=False)
-                            )
-                        except Exception:
-                            pass
+                    try:
+                        await context.bot.set_chat_permissions(
+                            chat_id=chat_id,
+                            permissions=ChatPermissions(can_send_messages=False)
+                        )
+                    except Exception:
+                        pass
                     if is_start_minute and item.get("notify", True):
                         try:
                             await context.bot.send_message(
@@ -350,22 +337,18 @@ async def night_scheduler(context: ContextTypes.DEFAULT_TYPE):
                         except Exception:
                             pass
                 elif is_end_minute and item.get("notify", True):
-                    admins = await context.bot.get_chat_administrators(chat_id)
-                    for admin in admins:
-                        if admin.user.is_bot or admin.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
-                            continue
-                        try:
-                            await context.bot.restrict_chat_member(
-                                chat_id=chat_id, user_id=admin.user.id,
-                                permissions=ChatPermissions(
-                                    can_send_messages=True, can_send_audios=True, can_send_documents=True,
-                                    can_send_photos=True, can_send_videos=True, can_send_video_notes=True,
-                                    can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True,
-                                    can_add_web_page_previews=True
-                                )
+                    try:
+                        await context.bot.set_chat_permissions(
+                            chat_id=chat_id,
+                            permissions=ChatPermissions(
+                                can_send_messages=True, can_send_audios=True, can_send_documents=True,
+                                can_send_photos=True, can_send_videos=True, can_send_video_notes=True,
+                                can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True,
+                                can_add_web_page_previews=True
                             )
-                        except Exception:
-                            pass
+                        )
+                    except Exception:
+                        pass
                     try:
                         await context.bot.send_message(
                             chat_id=chat_id,
