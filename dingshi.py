@@ -262,7 +262,7 @@ async def get_dingshi_list_text(chat_id: str, dingshi_list: list, user_id: int =
     return "".join(text_parts)
 
 
-def get_dingshi_list_keyboard(chat_id: str, dingshi_list: list, lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
+def get_dingshi_list_keyboard(chat_id: str, dingshi_list: list, lang: str = DEFAULT_LANG, is_channel: bool = False) -> InlineKeyboardMarkup:
     keyboard = []
     for item in dingshi_list:
         status_icon = CHECK_EMOJI_ID if item["status"] else CROSS_EMOJI_ID
@@ -275,7 +275,10 @@ def get_dingshi_list_keyboard(chat_id: str, dingshi_list: list, lang: str = DEFA
         ]
         keyboard.append(row)
     keyboard.append([InlineKeyboardButton(t_sync(lang, "dingshi_add"), callback_data=f"dingshi_add_{chat_id}", icon_custom_emoji_id=ADD_EMOJI_ID)])
-    keyboard.append([InlineKeyboardButton("« " + t_sync(lang, "back_group_manage"), callback_data=f"manage_group_{chat_id}")])
+    if is_channel:
+        keyboard.append([InlineKeyboardButton("« " + t_sync(lang, "back_channel_list"), callback_data=f"manage_channel_{chat_id}")])
+    else:
+        keyboard.append([InlineKeyboardButton("« " + t_sync(lang, "back_group_manage"), callback_data=f"manage_group_{chat_id}")])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -323,7 +326,14 @@ def get_dingshi_detail_keyboard(chat_id: str, dingshi_id: int, item: dict, lang:
 async def send_dingshi_panel(context: ContextTypes.DEFAULT_TYPE, chat_id: int, target_chat_id: int, user_id: int = 0):
     dingshi_list = await get_dingshi_list(chat_id)
     text = await get_dingshi_list_text(str(chat_id), dingshi_list, user_id)
-    reply_markup = get_dingshi_list_keyboard(str(chat_id), dingshi_list)
+    # 检测聊天类型，使返回按钮能正确跳转到群组管理或频道管理
+    try:
+        from telegram import Chat
+        chat = await context.bot.get_chat(chat_id)
+        is_channel = (chat.type == Chat.CHANNEL)
+    except Exception:
+        is_channel = False
+    reply_markup = get_dingshi_list_keyboard(str(chat_id), dingshi_list, is_channel=is_channel)
     await context.bot.send_message(chat_id=target_chat_id, text=text, parse_mode="HTML", reply_markup=reply_markup)
 
 
