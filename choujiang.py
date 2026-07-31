@@ -399,12 +399,6 @@ async def send_choujiang_panel(context, chat_id: int, target_chat_id: int, user_
 
 
 STATUS_LABELS = {"all": "全部", "active": "未开奖", "drawn": "已开奖", "cancelled": "已取消"}
-STATUS_ICONS = {
-    "all": f'<tg-emoji emoji-id="{CHART_EMOJI_ID}">📋</tg-emoji>',
-    "active": f'<tg-emoji emoji-id="{GIFT_EMOJI_ID}">🎁</tg-emoji>',
-    "drawn": f'<tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🎉</tg-emoji>',
-    "cancelled": f'<tg-emoji emoji-id="{CROSS_EMOJI_ID}">❌</tg-emoji>',
-}
 PER_PAGE = 5
 
 
@@ -412,9 +406,8 @@ def get_manage_keyboard(chat_id: str, lotteries: list, page: int, total_pages: i
     kb = []
     # 列表
     for cj in lotteries:
-        icon = STATUS_ICONS.get(cj["status"], "📋")
         kb.append([InlineKeyboardButton(
-            f'{icon} {cj["title"]}',
+            cj["title"],
             callback_data=f"cj_detail_{chat_id}_{cj['id']}",
             icon_custom_emoji_id=GIFT2_EMOJI_ID
         )])
