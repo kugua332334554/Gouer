@@ -264,6 +264,7 @@ def main():
     app.add_handler(CallbackQueryHandler(dingshi.dingshi_callback_handler, pattern="^(group_dingshi_|dingshi_)"))
     app.add_handler(CallbackQueryHandler(weijinci.weijinci_callback_handler, pattern="^(group_weijinci_|weijinci_)"))
     app.add_handler(CallbackQueryHandler(night.night_callback_handler, pattern="^(group_night_|night_)"))
+    app.add_handler(MessageHandler(filters.UpdateType.EDITED_MESSAGE, night.night_edit_handler))
     app.add_handler(CallbackQueryHandler(choujiang.choujiang_callback_handler, pattern="^(group_choujiang_|cj_)"))
     app.add_handler(CallbackQueryHandler(kuaisufabu.kuaisufabu_callback_handler, pattern="^(kf_|post_fast$)"))
     app.add_handler(CallbackQueryHandler(anti_bot.anti_bot_callback_handler, pattern="^atb_answer_"))
