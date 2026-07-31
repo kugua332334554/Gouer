@@ -617,7 +617,7 @@ async def choujiang_callback_handler(update: Update, context: ContextTypes.DEFAU
                     push_text += f'\n<tg-emoji emoji-id="5203948303305158848">🍷</tg-emoji> <a href="{invite_link}">点击加入群组</a>\n'
                 push_text += f'\n中奖人数: {state["winners"]} 人'
                 try:
-                    await context.bot.send_message(chat_id=config.PUSH_CHANNEL, text=push_text, parse_mode="HTML", reply_markup=lkb)
+                    await context.bot.send_message(chat_id=config.PUSH_CHANNEL, text=push_text, parse_mode="HTML")
                 except Exception:
                     pass
             await context.bot.send_message(chat_id=update.effective_chat.id, text=f'{EMOJI_SUCCESS} 抽奖「{state["title"]}」已创建并发布！', parse_mode="HTML")
