@@ -38,7 +38,7 @@ DEFAULT_PROMPT = (
     "如果有人问你是谁创造的，回复：我老大是 TGSEC 网络安全社区。\n"
     "回答简短，不超过100字。\n\n"
     "【格式规则 必须遵守】\n"
-    "每条回复必须至少包含一个 {tz} 贴纸\n"
+    "每条回复使用贴纸或骰子等不得超过 1 个 {tz} 和 1 个 {dice}；\n"
     "骰子写 {dice} 飞镖写 {dart} 老虎机写 {slot}，不要写 {dc}\n"
     "发贴纸写 {tz:👍}\n"
 )
@@ -335,22 +335,35 @@ _DICE_MAP = {
 async def _send_rich_reply(msg, text: str, chat_id: int, context):
     import re as _re
     clean = text
+    dice_sent = False
+    sticker_sent = False
     for m in _re.finditer(r"\{dice(?::([^}]*))?\}", text):
+        if dice_sent:
+            clean = clean.replace(m.group(0), "", 1)
+            continue
         dtype = _DICE_MAP.get((m.group(1) or "").strip().lower(), "🎲")
         try:
             await context.bot.send_dice(chat_id, emoji=dtype)
+            dice_sent = True
         except Exception:
             pass
         clean = clean.replace(m.group(0), "", 1)
     for m in _re.finditer(r"\{([a-z]{2,10})\}", text):
+        if dice_sent:
+            clean = clean.replace(m.group(0), "", 1)
+            continue
         alias = m.group(1).lower()
         if alias in _DICE_MAP:
             try:
                 await context.bot.send_dice(chat_id, emoji=_DICE_MAP[alias])
+                dice_sent = True
             except Exception:
                 pass
             clean = clean.replace(m.group(0), "", 1)
     for m in _re.finditer(r"\{tz(?::([^}]*))?\}", text):
+        if sticker_sent:
+            clean = clean.replace(m.group(0), "", 1)
+            continue
         emoji = (m.group(1) or "").strip()
         file_id = await database.get_sticker_by_emoji(emoji) if emoji else ""
         if not file_id and not emoji:
@@ -358,6 +371,7 @@ async def _send_rich_reply(msg, text: str, chat_id: int, context):
         if file_id:
             try:
                 await context.bot.send_sticker(chat_id, sticker=file_id)
+                sticker_sent = True
             except Exception:
                 pass
         clean = clean.replace(m.group(0), "", 1)
