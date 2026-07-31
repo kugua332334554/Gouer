@@ -360,7 +360,9 @@ def _format_create_summary(state: dict) -> str:
         f'标题：{state["title"]}\n'
         f'中奖人数：{state["winners"]} 人\n'
     )
-    if state["method"] == "count":
+    if state["ctype"] == "dice":
+        text += f'目标点数：投出 {state["draw_value"]} 点\n'
+    elif state["method"] == "count":
         text += f'所需人数：{state["draw_value"]} 人\n'
     else:
         text += f'开奖时间：{state["draw_value"]}\n'
@@ -842,7 +844,9 @@ async def choujiang_input_handler(update: Update, context: ContextTypes.DEFAULT_
         method = await_data["method"]
         await_data["type"] = "create_drawval"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"group_choujiang_{chat_id_str}")]])
-        if method == "count":
+        if await_data.get("ctype") == "dice":
+            await message.reply_html(f'<tg-emoji emoji-id="{DICE_EMOJI_ID}">🎲</tg-emoji> <b>第三步：设置目标点数</b>\n\n中奖人数：{w}\n\n请发送目标骰子点数（1-6），投出对应点数即可参与：', reply_markup=kb)
+        elif method == "count":
             await message.reply_html(f'<tg-emoji emoji-id="{CHART_EMOJI_ID}">📊</tg-emoji> <b>第三步：设置开奖条件</b>\n\n请发送需要参与人数（数字）：', reply_markup=kb)
         else:
             await message.reply_html(f'<tg-emoji emoji-id="{CLOCK_EMOJI_ID}">⏰</tg-emoji> <b>第三步：设置开奖时间</b>\n\n请发送开奖时间，格式 <code>YYYY-MM-DD HH:MM</code>\n示例：<code>2026-12-31 20:00</code>', reply_markup=kb)
@@ -863,9 +867,13 @@ async def choujiang_input_handler(update: Update, context: ContextTypes.DEFAULT_
                 v = int(raw)
                 if v < 1:
                     raise ValueError
+                # 骰子抽奖限制 1-6
+                if await_data.get("ctype") == "dice" and v > 6:
+                    raise ValueError
             except ValueError:
                 kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"group_choujiang_{chat_id_str}")]])
-                await message.reply_html(f"{EMOJI_WARN} 请输入有效的数字。", reply_markup=kb)
+                hint = "请输入 1-6 之间的数字。" if await_data.get("ctype") == "dice" else "请输入有效的数字。"
+                await message.reply_html(f"{EMOJI_WARN} {hint}", reply_markup=kb)
                 return
         await_data["draw_value"] = raw
         if await_data["ctype"] == "report":
