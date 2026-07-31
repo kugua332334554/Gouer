@@ -83,19 +83,19 @@ async def update_choujiang_settings(chat_id: int, **kwargs):
         logger.error(f"update_choujiang_settings err: {e}", exc_info=True)
 
 
-async def create_choujiang(chat_id: int, creator_id: int, ctype: str, title: str, prizes_json: str, winners: int, entry_cost: int, draw_method: str, draw_value: str, report_group_id: int = 0, report_keyword: str = "") -> int:
+async def create_choujiang(chat_id: int, creator_id: int, ctype: str, title: str, prizes_json: str, winners: int, entry_cost: int, draw_method: str, draw_value: str, report_group_id: int = 0, report_keyword: str = "", report_group_link: str = "") -> int:
     try:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 if draw_method == "count":
                     await cur.execute(
-                        "INSERT INTO group_choujiang (chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, report_group_id, report_keyword) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (chat_id, creator_id, ctype, title, prizes_json, winners, entry_cost, draw_method, int(draw_value), report_group_id, report_keyword))
+                        "INSERT INTO group_choujiang (chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, report_group_id, report_keyword, report_group_link) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (chat_id, creator_id, ctype, title, prizes_json, winners, entry_cost, draw_method, int(draw_value), report_group_id, report_keyword, report_group_link))
                 else:
                     draw_time = datetime.datetime.strptime(draw_value, "%Y-%m-%d %H:%M")
                     await cur.execute(
-                        "INSERT INTO group_choujiang (chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_time, report_group_id, report_keyword) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (chat_id, creator_id, ctype, title, prizes_json, winners, entry_cost, draw_method, draw_time, report_group_id, report_keyword))
+                        "INSERT INTO group_choujiang (chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_time, report_group_id, report_keyword, report_group_link) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (chat_id, creator_id, ctype, title, prizes_json, winners, entry_cost, draw_method, draw_time, report_group_id, report_keyword, report_group_link))
                 return cur.lastrowid
     except Exception as e:
         logger.error(f"create_choujiang err: {e}", exc_info=True)
@@ -107,9 +107,9 @@ async def get_choujiang_list(chat_id: int, status_filter: str = None) -> list:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 if status_filter:
-                    await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, status, message_id, created_at FROM group_choujiang WHERE chat_id = %s AND status = %s ORDER BY id DESC", (chat_id, status_filter))
+                    await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, status, message_id, created_at FROM group_choujiang WHERE chat_id = %s AND status = %s ORDER BY id DESC", (chat_id, status_filter))
                 else:
-                    await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, status, message_id, created_at FROM group_choujiang WHERE chat_id = %s ORDER BY id DESC", (chat_id,))
+                    await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, status, message_id, created_at FROM group_choujiang WHERE chat_id = %s ORDER BY id DESC", (chat_id,))
                 return [_row_to_dict(row) for row in await cur.fetchall()]
     except Exception as e:
         logger.error(f"get_choujiang_list err: {e}", exc_info=True)
@@ -120,7 +120,7 @@ async def get_choujiang_by_id(lottery_id: int) -> dict:
     try:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, status, message_id, created_at FROM group_choujiang WHERE id = %s", (lottery_id,))
+                await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, status, message_id, created_at FROM group_choujiang WHERE id = %s", (lottery_id,))
                 row = await cur.fetchone()
                 return _row_to_dict(row) if row else None
     except Exception as e:
@@ -153,7 +153,8 @@ def _row_to_dict(row) -> dict:
             "prize_description": row[5] or "[]", "winner_count": row[6] or 1, "entry_cost": row[7] or 0,
             "draw_method": row[8], "draw_count": row[9] or 0, "draw_time": row[10],
             "report_group_id": row[11] or 0, "report_keyword": row[12] or "",
-            "status": row[13], "message_id": row[14], "created_at": row[15]}
+            "report_group_link": row[13] or "",
+            "status": row[14], "message_id": row[15], "created_at": row[16]}
 
 
 async def update_choujiang(lottery_id: int, **kwargs):
@@ -211,7 +212,7 @@ async def get_active_time_lotteries() -> list:
     try:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, status, message_id, created_at FROM group_choujiang WHERE status = 'active' AND draw_method = 'time' AND draw_time IS NOT NULL")
+                await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, status, message_id, created_at FROM group_choujiang WHERE status = 'active' AND draw_method = 'time' AND draw_time IS NOT NULL")
                 return [_row_to_dict(row) for row in await cur.fetchall()]
     except Exception as e:
         logger.error(f"get_active_time_lotteries err: {e}", exc_info=True)
@@ -271,12 +272,14 @@ def get_lottery_text(lottery: dict, entry_count: int, chat_title: str = "") -> s
     if lottery["entry_cost"] > 0:
         text += f'参与费用：{lottery["entry_cost"]} 积分\n'
     if lottery["type"] == "report" and lottery.get("report_group_id"):
-        text += f'\n<tg-emoji emoji-id="{GIFT_EMOJI_ID}">📢</tg-emoji> <b>参与方式：</b>\n前往目标群发送关键词 <code>{lottery.get("report_keyword", "")}</code> 即可参与\n'
+        link = lottery.get("report_group_link", "")
+        link_text = f'\n<tg-emoji emoji-id="5203948303305158848">🔗</tg-emoji> <a href="{link}">点击加入报道群</a>' if link else ""
+        text += f'\n<tg-emoji emoji-id="{MEGA_EMOJI_ID}">📢</tg-emoji> <b>参与方式：</b>\n前往目标群发送关键词 <code>{lottery.get("report_keyword", "")}</code> 即可参与{link_text}\n'
     return text
 
 
 def get_lottery_keyboard(lottery_id: int, lottery_type: str = "general") -> InlineKeyboardMarkup:
-    btn_text = "🎁 积分参与" if lottery_type == "points" else "🎁 参与抽奖"
+    btn_text = "积分参与" if lottery_type == "points" else "参与抽奖"
     return InlineKeyboardMarkup([[InlineKeyboardButton(btn_text, callback_data=f"cj_enter_{lottery_id}", icon_custom_emoji_id=GIFT_EMOJI_ID)]])
 
 
@@ -396,7 +399,12 @@ async def send_choujiang_panel(context, chat_id: int, target_chat_id: int, user_
 
 
 STATUS_LABELS = {"all": "全部", "active": "未开奖", "drawn": "已开奖", "cancelled": "已取消"}
-STATUS_ICONS = {"all": "📋", "active": "🎁", "drawn": "🎉", "cancelled": "❌"}
+STATUS_ICONS = {
+    "all": f'<tg-emoji emoji-id="{CHART_EMOJI_ID}">📋</tg-emoji>',
+    "active": f'<tg-emoji emoji-id="{GIFT_EMOJI_ID}">🎁</tg-emoji>',
+    "drawn": f'<tg-emoji emoji-id="{TROPHY_EMOJI_ID}">🎉</tg-emoji>',
+    "cancelled": f'<tg-emoji emoji-id="{CROSS_EMOJI_ID}">❌</tg-emoji>',
+}
 PER_PAGE = 5
 
 
@@ -569,7 +577,8 @@ async def choujiang_callback_handler(update: Update, context: ContextTypes.DEFAU
         prizes_json = json.dumps(state.get("prizes", []), ensure_ascii=False)
         lottery_id = await create_choujiang(chat_id, user_id, state["ctype"], state["title"], prizes_json, state["winners"],
                                               state.get("cost", 0), state["method"], state["draw_value"],
-                                              state.get("report_group_id", 0), state.get("report_keyword", ""))
+                                              state.get("report_group_id", 0), state.get("report_keyword", ""),
+                                              state.get("report_group_link", ""))
         if lottery_id:
             lottery = await get_choujiang_by_id(lottery_id)
             try:
@@ -832,9 +841,22 @@ async def choujiang_input_handler(update: Update, context: ContextTypes.DEFAULT_
             await message.reply_html(f"{EMOJI_WARN} 请输入有效的群 ID（数字）。", reply_markup=kb)
             return
         await_data["report_group_id"] = gid
+        # try to get group invite link
+        try:
+            chat_info = await context.bot.get_chat(gid)
+            if chat_info.username:
+                await_data["report_group_link"] = f"https://t.me/{chat_info.username}"
+            elif chat_info.invite_link:
+                await_data["report_group_link"] = chat_info.invite_link
+            else:
+                link_obj = await context.bot.create_chat_invite_link(gid, member_limit=1)
+                await_data["report_group_link"] = link_obj.invite_link
+        except Exception:
+            await_data["report_group_link"] = ""
         await_data["type"] = "create_report_keyword"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"group_choujiang_{chat_id_str}")]])
-        await message.reply_html(f'<tg-emoji emoji-id="{GIFT_EMOJI_ID}">🎁</tg-emoji> <b>第五步：设置报道关键词</b>\n\n报道群：{gid}\n\n请发送报道关键词（用户在该群发送此词即参与）：', reply_markup=kb)
+        link_hint = f"\n链接：{await_data['report_group_link']}" if await_data.get("report_group_link") else ""
+        await message.reply_html(f'<tg-emoji emoji-id="{GIFT_EMOJI_ID}">🎁</tg-emoji> <b>第五步：设置报道关键词</b>\n\n报道群：{gid}{link_hint}\n\n请发送报道关键词（用户在该群发送此词即参与）：', reply_markup=kb)
         return
 
     if atype == "create_report_keyword":
