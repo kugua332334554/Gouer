@@ -5,6 +5,7 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     ChatMemberHandler,
+    ChatJoinRequestHandler,
     MessageHandler,
     InlineQueryHandler,
     filters
@@ -28,7 +29,7 @@ from handlers import (
     points_rank_command,
     help_command
 )
-from auth import new_member_handler, auth_callback_handler, chat_member_update_handler
+from auth import new_member_handler, auth_callback_handler, chat_member_update_handler, chat_join_request_handler
 from welcome import welcome_callback_handler, welcome_input_handler
 from jifen import checkin_handler, message_points_handler, points_query_handler
 import dingshi
@@ -257,6 +258,7 @@ async def _recover_pending_payments(application):
 def main():
     app = ApplicationBuilder().token(config.BOT_TOKEN).concurrent_updates(True).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start_handler))
+    app.add_handler(ChatJoinRequestHandler(chat_join_request_handler))
     app.add_handler(CallbackQueryHandler(auth_callback_handler, pattern="^auth_"))
     app.add_handler(CallbackQueryHandler(welcome_callback_handler, pattern="^wel_"))
     app.add_handler(CallbackQueryHandler(dingshi.dingshi_callback_handler, pattern="^(group_dingshi_|dingshi_)"))
