@@ -39,9 +39,8 @@ DEFAULT_PROMPT = (
     "回答简短，不超过100字。\n\n"
     "【格式规则 必须遵守】\n"
     "每条回复必须至少包含一个 {tz} 贴纸\n"
-    "发骰子写 {dice:dart} 不要写 {dc}\n"
+    "骰子写 {dice} 飞镖写 {dart} 老虎机写 {slot}，不要写 {dc}\n"
     "发贴纸写 {tz:👍}\n"
-    "骰子类型: dice(🎲) dart(🎯) basketball(🏀) football(⚽) slot(🎰)"
 )
 
 _AWAIT_AI_INPUT = {}
