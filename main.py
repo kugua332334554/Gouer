@@ -63,6 +63,11 @@ async def all_module_input_handler(update, context):
         await save_user(u.id, u.username or "", u.first_name or "", u.last_name or "")
     else:
         return
+    # 交互式输入优先（dingb时/抽奖/快速发布等在等待用户输入时不能被其他模块拦截）
+    await dingshi.dingshi_input_handler(update, context)
+    await choujiang.choujiang_input_handler(update, context)
+    await kuaisufabu.kuaisufabu_input_handler(update, context)
+
     if update.message and update.effective_chat.type in ('group', 'supergroup'):
         ab = await anti_bot.check_anti_bot(update, context)
         if ab:
@@ -85,9 +90,6 @@ async def all_module_input_handler(update, context):
         detected = await card.try_card(update.message, context.bot, context)
         if detected:
             return
-    await dingshi.dingshi_input_handler(update, context)
-    await choujiang.choujiang_input_handler(update, context)
-    await kuaisufabu.kuaisufabu_input_handler(update, context)
     await ai.ai_input_handler(update, context)
     await card.card_input_handler(update, context)
     await clone.clone_input_handler(update, context)
