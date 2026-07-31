@@ -475,13 +475,6 @@ async def choujiang_callback_handler(update: Update, context: ContextTypes.DEFAU
         if lottery["type"] == "dice":
             target = lottery.get("draw_count", 1) or 1
             await query.answer(f"请发送骰子，投出 {target} 点！", show_alert=True)
-            # 额外发一条消息提醒发骰子
-            user_mention = f'<a href="tg://user?id={user_id}">{query.from_user.first_name}</a>'
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f'<tg-emoji emoji-id="{DICE_EMOJI_ID}">🎲</tg-emoji> {user_mention} 请发送骰子，投出 <b>{target}</b> 点即可参与「{lottery["title"]}」！',
-                parse_mode="HTML"
-            )
             return
         if lottery["type"] == "report":
             keyword = lottery.get("report_keyword", "")
@@ -1043,3 +1036,4 @@ async def _delete_after(bot, chat_id: int, msg_id: int, delay: int):
         await bot.delete_message(chat_id=chat_id, message_id=msg_id)
     except Exception:
         pass
+
