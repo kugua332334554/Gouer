@@ -57,13 +57,13 @@ async def get_choujiang_settings(chat_id: int) -> dict:
     try:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT chat_id, pin_lottery, pin_result, delete_entry, push_channel FROM group_choujiang_settings WHERE chat_id = %s", (chat_id,))
+                await cur.execute("SELECT chat_id, pin_lottery, pin_result, delete_entry, push_channel, push_enabled FROM group_choujiang_settings WHERE chat_id = %s", (chat_id,))
                 row = await cur.fetchone()
                 if row:
-                    return {"chat_id": row[0], "pin_lottery": bool(row[1]), "pin_result": bool(row[2]), "delete_entry": row[3] or 0, "push_channel": row[4] or ""}
+                    return {"chat_id": row[0], "pin_lottery": bool(row[1]), "pin_result": bool(row[2]), "delete_entry": row[3] or 0, "push_channel": row[4] or "", "push_enabled": bool(row[5])}
     except Exception as e:
         logger.error(f"get_choujiang_settings err: {e}", exc_info=True)
-    return {"chat_id": chat_id, "pin_lottery": True, "pin_result": True, "delete_entry": 0, "push_channel": ""}
+    return {"chat_id": chat_id, "pin_lottery": True, "pin_result": True, "delete_entry": 0, "push_channel": "", "push_enabled": False}
 
 
 async def update_choujiang_settings(chat_id: int, **kwargs):
