@@ -264,6 +264,9 @@ async def nsfw_check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if len(file_bytes) > 10 * 1024 * 1024:
             return False
 
+        # use DB threshold, default 0.8
+        threshold = s.get("threshold", 0.8)
+
         # check NSFW: scan frames for video, single check for image
         import asyncio as _asyncio
         if is_video and len(file_bytes) < 10 * 1024 * 1024:
@@ -273,9 +276,6 @@ async def nsfw_check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         else:
             result = await _check_nsfw(file_bytes)
             nsfw_score = result["nsfw"]
-
-        # use DB threshold, default 0.8
-        threshold = s.get("threshold", 0.8)
 
         if nsfw_score >= threshold:
             user = update.effective_user
