@@ -298,13 +298,24 @@ async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if mentions > 3:
             return True, f"过多@ ({mentions}个)"
 
-    # 8. 所有链接
-    if s["block_links"] and msg.text and _URL_RE.search(msg.text):
-        return True, "链接"
+    # 8. 所有链接 — 检查 text / caption / 内嵌 entity
+    if s["block_links"]:
+        content = msg.text or msg.caption or ""
+        if _URL_RE.search(content):
+            return True, "链接"
+        # 内嵌 text_link（URL 藏在 entity 里，文本不可见）
+        for ent in (msg.entities or []) + (msg.caption_entities or []):
+            if ent.type == "text_link" and ent.url and _URL_RE.search(ent.url):
+                return True, "链接"
 
-    # 9. 超长链接
-    if s["block_long_links"] and msg.text and _LONG_URL_RE.search(msg.text):
-        return True, "超长链接"
+    # 9. 超长链接 — 同样检查 text / caption / 内嵌 entity
+    if s["block_long_links"]:
+        content = msg.text or msg.caption or ""
+        if _LONG_URL_RE.search(content):
+            return True, "超长链接"
+        for ent in (msg.entities or []) + (msg.caption_entities or []):
+            if ent.type == "text_link" and ent.url and _LONG_URL_RE.search(ent.url):
+                return True, "超长链接"
 
     # 10. 刷屏检测
     if s["block_flood"] and msg.text:
