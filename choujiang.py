@@ -251,7 +251,9 @@ async def draw_winners(lottery_id: int) -> list:
 
 def get_lottery_text(lottery: dict, entry_count: int, chat_title: str = "") -> str:
     ctype = LOTTERY_TYPES.get(lottery["type"], lottery["type"])
-    if lottery["draw_method"] == "count":
+    if lottery["type"] == "dice":
+        draw_info = f"投出 {lottery['draw_count']} 点即可参与 | 已参与 {entry_count} 人"
+    elif lottery["draw_method"] == "count":
         draw_info = f"参与 {entry_count}/{lottery['draw_count']} 人"
     else:
         dt = lottery["draw_time"]
@@ -468,6 +470,17 @@ async def choujiang_callback_handler(update: Update, context: ContextTypes.DEFAU
         if not lottery or lottery["status"] != "active":
             await query.answer("该抽奖已结束或不存在", show_alert=True)
             return
+        if lottery["type"] == "dice":
+            target = lottery.get("draw_count", 1) or 1
+            await query.answer(f"请发送骰子，投出 {target} 点！", show_alert=True)
+            # 额外发一条消息提醒发骰子
+            user_mention = f'<a href="tg://user?id={user_id}">{query.from_user.first_name}</a>'
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f'<tg-emoji emoji-id="{DICE_EMOJI_ID}">🎲</tg-emoji> {user_mention} 请发送骰子，投出 <b>{target}</b> 点即可参与「{lottery["title"]}」！',
+                parse_mode="HTML"
+            )
+            return
         if lottery["type"] == "report":
             keyword = lottery.get("report_keyword", "")
             gid = lottery.get("report_group_id", 0)
@@ -584,6 +597,12 @@ async def choujiang_callback_handler(update: Update, context: ContextTypes.DEFAU
             settings = await get_choujiang_settings(chat_id)
             sent_msg = await context.bot.send_message(chat_id=chat_id, text=ltext, parse_mode="HTML", reply_markup=lkb)
             await update_choujiang(lottery_id, message_id=sent_msg.message_id)
+            # 骰子抽奖额外发一条骰子消息
+            if state["ctype"] == "dice":
+                try:
+                    await context.bot.send_dice(chat_id=chat_id, emoji="🎲")
+                except Exception:
+                    pass
             if settings["pin_lottery"]:
                 try:
                     await context.bot.pin_chat_message(chat_id=chat_id, message_id=sent_msg.message_id, disable_notification=False)
@@ -724,7 +743,43 @@ async def choujiang_input_handler(update: Update, context: ContextTypes.DEFAULT_
     if user_id is None:
         return
     message = update.message
-    if message is None or not message.text:
+    if message is None:
+        return
+
+    chat_id_now = update.effective_chat.id if update.effective_chat else 0
+
+    # 骰子抽奖检测 — 用户投出骰子，值匹配即参与
+    if message.dice and chat_id_now:
+        dice_val = message.dice.value
+        try:
+            from database import db_pool
+            async with db_pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "SELECT id, chat_id, draw_count FROM group_choujiang WHERE chat_id=%s AND type='dice' AND status='active'",
+                        (chat_id_now,))
+                    for row in await cur.fetchall():
+                        lid, l_chat_id, target = row
+                        if dice_val != (target or 1):
+                            continue
+                        # 已参与过？
+                        await cur.execute("SELECT 1 FROM group_choujiang_entries WHERE lottery_id=%s AND user_id=%s", (lid, user_id))
+                        if await cur.fetchone():
+                            continue
+                        await cur.execute("INSERT INTO group_choujiang_entries (lottery_id, user_id, entry_data) VALUES (%s, %s, %s)", (lid, user_id, f"dice:{dice_val}"))
+                        logger.info(f"dice lottery entry: user={user_id} lottery={lid} dice={dice_val}")
+                        # 检查是否达到开奖条件
+                        await cur.execute("SELECT COUNT(*) FROM group_choujiang_entries WHERE lottery_id=%s", (lid,))
+                        cnt = (await cur.fetchone())[0]
+                        await cur.execute("SELECT draw_count FROM group_choujiang WHERE id=%s", (lid,))
+                        lrow = await cur.fetchone()
+                        draw_cnt = lrow[0] if lrow else 0
+                        if cnt >= draw_cnt:
+                            asyncio.create_task(_auto_draw_from_db(context, lid, l_chat_id))
+        except Exception as e:
+            logger.error(f"dice lottery check err: {e}")
+
+    if not message.text:
         return
 
     # 报道抽奖关键词检测（无论是否在 await 状态都检查）
