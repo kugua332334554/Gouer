@@ -363,6 +363,53 @@ async def night_scheduler(context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"night_scheduler err: {e}", exc_info=True)
 
 
+async def night_edit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete edited messages during night mode (non-admin only)."""
+    msg = update.edited_message
+    if not msg:
+        return
+
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not chat or not user or user.is_bot:
+        return
+
+    # check night mode
+    settings = await get_night_settings(chat.id)
+    if not settings["status"]:
+        return
+
+    # check if currently in night hours
+    tz_offset = await get_group_owner_tz_offset(context, chat.id)
+    now_local = datetime.datetime.utcnow() + datetime.timedelta(hours=tz_offset)
+    current_hour = now_local.hour
+    start_h = settings["start_hour"]
+    end_h = settings["end_hour"]
+    if start_h < end_h:
+        in_night = start_h <= current_hour < end_h
+    else:
+        in_night = current_hour >= start_h or current_hour < end_h
+
+    if not in_night:
+        return
+
+    # check if user is admin
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
+            return
+    except Exception:
+        pass
+
+    # delete the edited message
+    try:
+        await msg.delete()
+        logger.info(f"night mode: deleted edited message from {user.id} in {chat.id}")
+    except Exception as e:
+        logger.error(f"night mode delete edit failed: {e}")
+
+
 async def run_night_scheduler(application):
     await asyncio.sleep(15)
     while True:
