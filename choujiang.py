@@ -876,13 +876,46 @@ async def do_draw(context, lottery: dict, chat_id: int, target_chat_id: int = No
         return
     winner_ids = await draw_winners(lottery["id"])
     cnt = await get_entry_count(lottery["id"])
+
+    # parse prizes
+    prizes = []
+    try:
+        prizes = json.loads(lottery.get("prize_description", "[]"))
+    except Exception:
+        prizes = []
+
+    # build winner mentions + DM each winner
     winner_mentions = []
-    for wid in winner_ids:
+    group_title = str(chat_id)
+    try:
+        chat_obj = await context.bot.get_chat(chat_id)
+        group_title = chat_obj.title or str(chat_id)
+    except Exception:
+        pass
+
+    for i, wid in enumerate(winner_ids):
+        # get mention for group announcement
         try:
             member = await context.bot.get_chat_member(chat_id, wid)
             winner_mentions.append(member.user.mention_html())
         except Exception:
             winner_mentions.append(str(wid))
+
+        # DM the winner with prize info
+        prize = prizes[i] if i < len(prizes) else (prizes[-1] if prizes else "请联系管理员领取")
+        try:
+            dm_text = (
+                f'<tg-emoji emoji-id="5404573776253825754">🎊</tg-emoji> <b>恭喜中奖！</b>\n\n'
+                f'活动：<b>{lottery["title"]}</b>\n'
+                f'群组：{group_title}\n\n'
+                f'您获得的奖品：<b>{prize}</b>\n\n'
+                f'请联系群管理员领取奖品。'
+            )
+            await context.bot.send_message(chat_id=wid, text=dm_text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Failed to DM winner {wid}: {e}")
+        await asyncio.sleep(0.5)
+
     winners_text = "\n".join(f"{i+1}. {m}" for i, m in enumerate(winner_mentions)) if winner_mentions else "无参与者"
     result_text = (
         f'<tg-emoji emoji-id="{CROWN_EMOJI_ID}">👑</tg-emoji> <b>抽奖结果</b>\n\n'

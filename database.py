@@ -262,9 +262,14 @@ async def init_db():
                         chat_id BIGINT PRIMARY KEY,
                         pin BOOLEAN DEFAULT FALSE,
                         photo BOOLEAN DEFAULT FALSE,
-                        title BOOLEAN DEFAULT FALSE
+                        title BOOLEAN DEFAULT FALSE,
+                        join_leave BOOLEAN DEFAULT FALSE
                     )
                 """)
+                # migrate existing tables
+                try:
+                    await cur.execute("ALTER TABLE group_autodelete ADD COLUMN join_leave BOOLEAN DEFAULT FALSE")
+                except Exception: pass
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_permission (
                         chat_id BIGINT PRIMARY KEY,
@@ -388,6 +393,64 @@ async def init_db():
                         close_media_type VARCHAR(20) DEFAULT NULL,
                         close_media_file_id VARCHAR(255) DEFAULT NULL,
                         close_buttons_text TEXT DEFAULT NULL
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_keyword_reply (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        chat_id BIGINT NOT NULL,
+                        keyword VARCHAR(500) NOT NULL,
+                        reply_text TEXT DEFAULT NULL,
+                        media_type VARCHAR(20) DEFAULT NULL,
+                        media_file_id VARCHAR(255) DEFAULT NULL,
+                        buttons_text TEXT DEFAULT NULL,
+                        match_mode VARCHAR(20) DEFAULT 'contains',
+                        status BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_shop (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        chat_id BIGINT NOT NULL,
+                        name VARCHAR(200) NOT NULL,
+                        description TEXT DEFAULT NULL,
+                        points_price INT NOT NULL DEFAULT 0,
+                        stock INT DEFAULT -1,
+                        media_type VARCHAR(20) DEFAULT NULL,
+                        media_file_id VARCHAR(255) DEFAULT NULL,
+                        delivery_mode VARCHAR(20) DEFAULT 'manual',
+                        card_data TEXT DEFAULT NULL,
+                        status BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                # migrate: add delivery_mode + card_data columns for existing tables
+                try:
+                    await cur.execute("ALTER TABLE group_shop ADD COLUMN delivery_mode VARCHAR(20) DEFAULT 'manual'")
+                except Exception: pass
+                try:
+                    await cur.execute("ALTER TABLE group_shop ADD COLUMN card_data TEXT DEFAULT NULL")
+                except Exception: pass
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_points_lottery (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        chat_id BIGINT NOT NULL,
+                        title VARCHAR(200) NOT NULL,
+                        ticket_price INT NOT NULL DEFAULT 10,
+                        prize_list TEXT DEFAULT NULL,
+                        max_winners INT DEFAULT 1,
+                        status VARCHAR(20) DEFAULT 'active',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS lottery_entries (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        lottery_id INT NOT NULL,
+                        user_id BIGINT NOT NULL,
+                        username VARCHAR(255) DEFAULT '',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
                 await cur.execute("""
@@ -1196,3 +1259,293 @@ async def update_antispam_settings(chat_id: int, **kwargs):
                 await cur.execute(f"UPDATE group_antispam SET {', '.join(parts)} WHERE chat_id=%s", vals)
     except Exception as e:
         logger.error(f"update_antispam_settings err: {e}")
+
+
+# ── 关键词回复 ──────────────────────────────────────
+
+# ── Points Shop ──────────────────────────────────────
+
+async def get_shop_items(chat_id: int) -> list:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT id, chat_id, name, description, points_price, stock, "
+                    "media_type, media_file_id, delivery_mode, card_data, status, created_at "
+                    "FROM group_shop WHERE chat_id=%s ORDER BY id ASC", (chat_id,))
+                rows = await cur.fetchall()
+                return [{"id": r[0], "chat_id": r[1], "name": r[2], "description": r[3],
+                         "points_price": r[4], "stock": r[5], "media_type": r[6],
+                         "media_file_id": r[7], "delivery_mode": r[8], "card_data": r[9],
+                         "status": bool(r[10]), "created_at": r[11]} for r in rows]
+    except Exception as e:
+        logger.error(f"get_shop_items err: {e}")
+        return []
+
+async def add_shop_item(chat_id: int, name: str, points_price: int, stock: int = -1,
+                         description: str = "") -> int:
+    """stock = -1 means unlimited"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO group_shop (chat_id, name, points_price, stock, description) "
+                    "VALUES (%s,%s,%s,%s,%s)", (chat_id, name, points_price, stock, description))
+                return cur.lastrowid
+    except Exception as e:
+        logger.error(f"add_shop_item err: {e}")
+        return 0
+
+async def update_shop_item(item_id: int, **kwargs):
+    if not kwargs: return
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                parts, vals = [], []
+                for k, v in kwargs.items():
+                    parts.append(f"{validate_column_name(k)}=%s"); vals.append(v)
+                vals.append(item_id)
+                await cur.execute(f"UPDATE group_shop SET {', '.join(parts)} WHERE id=%s", vals)
+    except Exception as e:
+        logger.error(f"update_shop_item err: {e}")
+
+# ── Card delivery ────────────────────────────────────
+
+async def pop_shop_card(item_id: int) -> str:
+    """Pop the first card code from the pool. Returns empty string if none left."""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT card_data FROM group_shop WHERE id=%s", (item_id,))
+                row = await cur.fetchone()
+                if not row or not row[0]:
+                    return ""
+                cards = row[0].strip().split("\n")
+                if not cards or (len(cards) == 1 and not cards[0]):
+                    return ""
+                first = cards[0].strip()
+                remaining = "\n".join(c[0].strip() for c in (cards[1:] if len(cards) > 1 else [""]) if c and c.strip())
+                new_stock = len([c for c in remaining.split("\n") if c.strip()]) if remaining else 0
+                await cur.execute(
+                    "UPDATE group_shop SET card_data=%s, stock=%s, status=%s WHERE id=%s",
+                    (remaining, new_stock, new_stock > 0, item_id))
+                return first
+    except Exception as e:
+        logger.error(f"pop_shop_card err: {e}")
+        return ""
+
+async def delete_shop_item(item_id: int):
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("DELETE FROM group_shop WHERE id=%s", (item_id,))
+    except Exception as e:
+        logger.error(f"delete_shop_item err: {e}")
+
+# ── Points Lottery ───────────────────────────────────
+
+async def get_lotteries(chat_id: int) -> list:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT id, chat_id, title, ticket_price, prize_list, "
+                    "max_winners, status, created_at FROM group_points_lottery "
+                    "WHERE chat_id=%s ORDER BY id DESC", (chat_id,))
+                rows = await cur.fetchall()
+                return [{"id": r[0], "chat_id": r[1], "title": r[2], "ticket_price": r[3],
+                         "prize_list": r[4] or "", "max_winners": r[5], "status": r[6],
+                         "created_at": r[7]} for r in rows]
+    except Exception as e:
+        logger.error(f"get_lotteries err: {e}")
+        return []
+
+async def get_lottery(lottery_id: int) -> dict:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT id, chat_id, title, ticket_price, prize_list, "
+                    "max_winners, status, created_at FROM group_points_lottery WHERE id=%s", (lottery_id,))
+                r = await cur.fetchone()
+                if r:
+                    return {"id": r[0], "chat_id": r[1], "title": r[2], "ticket_price": r[3],
+                            "prize_list": r[4] or "", "max_winners": r[5], "status": r[6], "created_at": r[7]}
+    except Exception as e:
+        logger.error(f"get_lottery err: {e}")
+    return None
+
+async def add_lottery(chat_id: int, title: str, ticket_price: int, prize_list: str = "",
+                       max_winners: int = 1) -> int:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO group_points_lottery (chat_id, title, ticket_price, prize_list, max_winners) "
+                    "VALUES (%s,%s,%s,%s,%s)", (chat_id, title, ticket_price, prize_list, max_winners))
+                return cur.lastrowid
+    except Exception as e:
+        logger.error(f"add_lottery err: {e}")
+        return 0
+
+async def update_lottery(lottery_id: int, **kwargs):
+    if not kwargs: return
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                parts, vals = [], []
+                for k, v in kwargs.items():
+                    parts.append(f"{validate_column_name(k)}=%s"); vals.append(v)
+                vals.append(lottery_id)
+                await cur.execute(f"UPDATE group_points_lottery SET {', '.join(parts)} WHERE id=%s", vals)
+    except Exception as e:
+        logger.error(f"update_lottery err: {e}")
+
+async def delete_lottery(lottery_id: int):
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("DELETE FROM group_points_lottery WHERE id=%s", (lottery_id,))
+                await cur.execute("DELETE FROM lottery_entries WHERE lottery_id=%s", (lottery_id,))
+    except Exception as e:
+        logger.error(f"delete_lottery err: {e}")
+
+# ── Lottery entries ──────────────────────────────────
+
+async def enter_lottery(lottery_id: int, user_id: int, username: str = "") -> bool:
+    """Returns True if entered, False if already entered."""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT id FROM lottery_entries WHERE lottery_id=%s AND user_id=%s",
+                    (lottery_id, user_id))
+                if await cur.fetchone():
+                    return False  # already entered
+                await cur.execute(
+                    "INSERT INTO lottery_entries (lottery_id, user_id, username) VALUES (%s,%s,%s)",
+                    (lottery_id, user_id, username))
+                return True
+    except Exception as e:
+        logger.error(f"enter_lottery err: {e}")
+        return False
+
+async def get_lottery_entries(lottery_id: int) -> list:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT user_id, username FROM lottery_entries WHERE lottery_id=%s", (lottery_id,))
+                return [{"user_id": r[0], "username": r[1]} for r in await cur.fetchall()]
+    except Exception as e:
+        logger.error(f"get_lottery_entries err: {e}")
+        return []
+
+async def get_lottery_entry_count(lottery_id: int) -> int:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT COUNT(*) FROM lottery_entries WHERE lottery_id=%s", (lottery_id,))
+                row = await cur.fetchone()
+                return row[0] if row else 0
+    except Exception:
+        return 0
+
+async def get_keyword_replies(chat_id: int) -> list:
+    """获取群组的所有关键词回复"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT id, chat_id, keyword, reply_text, media_type, media_file_id, "
+                    "buttons_text, match_mode, status, created_at "
+                    "FROM group_keyword_reply WHERE chat_id=%s ORDER BY id ASC",
+                    (chat_id,))
+                rows = await cur.fetchall()
+                return [
+                    {"id": r[0], "chat_id": r[1], "keyword": r[2], "reply_text": r[3],
+                     "media_type": r[4], "media_file_id": r[5], "buttons_text": r[6],
+                     "match_mode": r[7], "status": bool(r[8]), "created_at": r[9]}
+                    for r in rows
+                ]
+    except Exception as e:
+        logger.error(f"get_keyword_replies err: {e}")
+        return []
+
+
+async def get_keyword_reply(reply_id: int) -> dict:
+    """获取单条关键词回复"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT id, chat_id, keyword, reply_text, media_type, media_file_id, "
+                    "buttons_text, match_mode, status, created_at "
+                    "FROM group_keyword_reply WHERE id=%s", (reply_id,))
+                r = await cur.fetchone()
+                if r:
+                    return {"id": r[0], "chat_id": r[1], "keyword": r[2], "reply_text": r[3],
+                            "media_type": r[4], "media_file_id": r[5], "buttons_text": r[6],
+                            "match_mode": r[7], "status": bool(r[8]), "created_at": r[9]}
+    except Exception as e:
+        logger.error(f"get_keyword_reply err: {e}")
+    return None
+
+
+async def add_keyword_reply(chat_id: int, keyword: str, match_mode: str = "contains") -> int:
+    """添加关键词回复，返回新 ID"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO group_keyword_reply (chat_id, keyword, match_mode) VALUES (%s,%s,%s)",
+                    (chat_id, keyword, match_mode))
+                return cur.lastrowid
+    except Exception as e:
+        logger.error(f"add_keyword_reply err: {e}")
+        return 0
+
+
+async def update_keyword_reply(reply_id: int, **kwargs):
+    """更新关键词回复字段"""
+    if not kwargs:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                parts, vals = [], []
+                for k, v in kwargs.items():
+                    parts.append(f"{validate_column_name(k)}=%s")
+                    vals.append(v)
+                vals.append(reply_id)
+                await cur.execute(
+                    f"UPDATE group_keyword_reply SET {', '.join(parts)} WHERE id=%s", vals)
+    except Exception as e:
+        logger.error(f"update_keyword_reply err: {e}")
+
+
+async def delete_keyword_reply(reply_id: int):
+    """删除关键词回复"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("DELETE FROM group_keyword_reply WHERE id=%s", (reply_id,))
+    except Exception as e:
+        logger.error(f"delete_keyword_reply err: {e}")
+
+
+async def toggle_keyword_reply(reply_id: int) -> bool:
+    """切换关键词回复状态，返回新状态"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT status FROM group_keyword_reply WHERE id=%s", (reply_id,))
+                row = await cur.fetchone()
+                if row:
+                    new_status = not bool(row[0])
+                    await cur.execute("UPDATE group_keyword_reply SET status=%s WHERE id=%s",
+                                      (new_status, reply_id))
+                    return new_status
+    except Exception as e:
+        logger.error(f"toggle_keyword_reply err: {e}")
+    return False

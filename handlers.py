@@ -69,7 +69,9 @@ def get_verification_text(state: dict) -> str:
     )
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 仅私聊
+    # clear all pending await states on /start
+    _clear_all_await_states(update.effective_user.id if update.effective_user else 0)
+    # private chat only
     if update.effective_chat and update.effective_chat.type != "private":
         return
     user = update.effective_user
@@ -941,3 +943,33 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ➖ /points -10 扣除10积分
 <tg-emoji emoji-id="4974535910839288905">🏆</tg-emoji> /points_rank 积分排名"""
     await update.message.reply_html(text)
+
+
+def _clear_all_await_states(user_id: int):
+    """Clear all pending input states for a user across all modules."""
+    try: __import__('dingshi')._AWAIT_DINGSHI_INPUT.pop(user_id, None)
+    except: pass
+    try: __import__('weijinci')._AWAIT_WEIJINCI_INPUT.pop(user_id, None)
+    except: pass
+    try: __import__('choujiang')._AWAIT_CHOUJIANG_INPUT.pop(user_id, None)
+    except: pass
+    try: __import__('kuaisufabu')._AWAIT_KUAISU_INPUT.pop(user_id, None)
+    except: pass
+    try: __import__('toggle_group')._AWAIT_TOGGLE.pop(user_id, None)
+    except: pass
+    try: __import__('shop')._AWAIT_SHOP.pop(user_id, None)
+    except: pass
+    try: __import__('keyword_reply')._AWAIT_KWR.pop(user_id, None)
+    except: pass
+    try: __import__('card')._AWAIT_CARD.pop(user_id, None)
+    except: pass
+    try: __import__('ai')._AWAIT_AI_INPUT.pop(user_id, None)
+    except: pass
+    try: __import__('speak_check')._AWAIT_SPEAK_CHANNEL.pop(user_id, None)
+    except: pass
+    try: __import__('antispam')._AWAIT_ANTISPAM.pop(user_id, None)
+    except: pass
+    try: __import__('autobutton')._AWAIT_AUTOBUTTON.pop(user_id, None)
+    except: pass
+    try: __import__('clone')._AWAIT_TOKEN.pop(user_id, None)
+    except: pass

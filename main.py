@@ -46,6 +46,8 @@ import speak_check
 import toggle_group
 import anti_bot
 import antispam
+import keyword_reply
+import shop
 
 
 async def all_module_input_handler(update, context):
@@ -66,6 +68,9 @@ async def all_module_input_handler(update, context):
         toggled = await toggle_group.check_toggle_keywords(update, context)
         if toggled:
             return
+        kwr_matched = await keyword_reply.kwr_check_handler(update, context)
+        if kwr_matched:
+            return
         blocked = await antispam.antispam_check_handler(update, context)
         if blocked:
             return
@@ -83,6 +88,8 @@ async def all_module_input_handler(update, context):
     await clone.clone_input_handler(update, context)
     await speak_check.speak_check_input_handler(update, context)
     await toggle_group.toggle_input_handler(update, context)
+    await keyword_reply.kwr_input_handler(update, context)
+    await shop.shop_input_handler(update, context)
     await antispam.antispam_input_handler(update, context)
     await autobutton.autobutton_input_handler(update, context)
     await weijinci.weijinci_input_handler(update, context)
@@ -181,14 +188,6 @@ async def _kill_all_children():
 
 
 async def _cleanup_stuck_verifications(application):
-    """重启后恢复：解除所有因 bot 重启而被永久禁言的验证中用户。
-
-    问题背景：新用户入群后 Bot 限制其发言权(无 until_date 永久禁言)，
-    验证状态存在内存中。Bot 重启后验证消息和超时任务全部丢失，用户永久被锁。
-
-    解决：pending_verifications 表持久化了验证状态。
-    重启时读取所有未过期记录，解除对应用户的禁言限制并删除过期记录。
-    """
     from database import delete_verification
     try:
         records = await database.get_all_pending_verifications()
@@ -271,6 +270,8 @@ def main():
     app.add_handler(CallbackQueryHandler(speak_check.speak_check_callback_handler, pattern="^spk_"))
     app.add_handler(CallbackQueryHandler(antispam.antispam_callback_handler, pattern="^as_"))
     app.add_handler(CallbackQueryHandler(toggle_group.toggle_callback_handler, pattern="^tg_"))
+    app.add_handler(CallbackQueryHandler(keyword_reply.kwr_callback_handler, pattern="^kwr_"))
+    app.add_handler(CallbackQueryHandler(shop.shop_callback_handler, pattern="^shop_"))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(ChatMemberHandler(my_chat_member_handler, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(ChatMemberHandler(chat_member_update_handler, ChatMemberHandler.CHAT_MEMBER))
@@ -290,6 +291,7 @@ def main():
     app.add_handler(CommandHandler("points", points_command))
     app.add_handler(CommandHandler("points_rank", points_rank_command))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("shop", shop.shop_command))
     app.add_handler(CommandHandler("r", ai.r_command))
     app.add_handler(CommandHandler("dl", ai.dl_command))
 

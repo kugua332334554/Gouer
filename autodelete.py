@@ -14,20 +14,20 @@ SWEEP_EMOJI_ID = "5927054181285237634"
 
 EMOJI_SUCCESS = '<tg-emoji emoji-id="5776375003280838798">✅</tg-emoji>'
 
-KEYS = {"pin": "置顶", "photo": "修改头像", "title": "修改名称"}
+KEYS = {"pin": "置顶", "photo": "修改头像", "title": "修改名称", "join_leave": "进退群/踢人"}
 
 
 async def get_autodelete_settings(chat_id: int) -> dict:
     try:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT chat_id, pin, photo, title FROM group_autodelete WHERE chat_id = %s", (chat_id,))
+                await cur.execute("SELECT chat_id, pin, photo, title, join_leave FROM group_autodelete WHERE chat_id = %s", (chat_id,))
                 row = await cur.fetchone()
                 if row:
-                    return {"chat_id": row[0], "pin": bool(row[1]), "photo": bool(row[2]), "title": bool(row[3])}
+                    return {"chat_id": row[0], "pin": bool(row[1]), "photo": bool(row[2]), "title": bool(row[3]), "join_leave": bool(row[4])}
     except Exception as e:
         logger.error(f"get_autodelete_settings err: {e}", exc_info=True)
-    return {"chat_id": chat_id, "pin": False, "photo": False, "title": False}
+    return {"chat_id": chat_id, "pin": False, "photo": False, "title": False, "join_leave": False}
 
 
 async def update_autodelete_settings(chat_id: int, **kwargs):
@@ -107,7 +107,9 @@ async def autodelete_callback_handler(update: Update, context: ContextTypes.DEFA
         return
 
     if data.startswith("ad_toggle_"):
-        key = data.split("_")[-1]
+        # key is everything after "ad_toggle_{chat_id}_"
+        prefix = f"ad_toggle_{chat_id}_"
+        key = data[len(prefix):]
         settings = await get_autodelete_settings(chat_id)
         new_val = not settings[key]
         await update_autodelete_settings(chat_id, **{key: new_val})
@@ -154,5 +156,12 @@ async def autodelete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
             logger.info(f"autodelete: deleted title change in {chat_id}")
+        except Exception:
+            pass
+
+    if settings.get("join_leave") and (msg.new_chat_members or msg.left_chat_member):
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
+            logger.info(f"autodelete: deleted join/leave message in {chat_id}")
         except Exception:
             pass
