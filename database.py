@@ -454,6 +454,14 @@ async def init_db():
                     )
                 """)
                 await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_nsfw (
+                        chat_id BIGINT PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT FALSE,
+                        penalty VARCHAR(20) DEFAULT 'delete',
+                        threshold_val FLOAT DEFAULT 0.8
+                    )
+                """)
+                await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_message_check (
                         chat_id BIGINT PRIMARY KEY,
                         enabled BOOLEAN DEFAULT FALSE,
