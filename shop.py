@@ -48,7 +48,6 @@ def get_shop_list_keyboard(chat_id: str, items: list) -> InlineKeyboardMarkup:
         stock_text = f"库存:{item['stock']}" if item["stock"] >= 0 else "无限"
         label = f'{item["name"]} — {item["points_price"]}分 [{mode_label}]'
         keyboard.append([InlineKeyboardButton(label, callback_data=f"shop_buy_{chat_id}_{item['id']}", icon_custom_emoji_id=SHOP_EMOJI)])
-    keyboard.append([InlineKeyboardButton("« 返回群组管理", callback_data=f"manage_group_{chat_id}")])
     return InlineKeyboardMarkup(keyboard)
 
 
