@@ -199,6 +199,10 @@ async def init_db():
                     await cur.execute("ALTER TABLE group_choujiang ADD COLUMN report_keyword VARCHAR(100) DEFAULT ''")
                 except Exception:
                     pass
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN report_group_link VARCHAR(255) DEFAULT ''")
+                except Exception:
+                    pass
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_choujiang_entries (
                         id INT AUTO_INCREMENT PRIMARY KEY,
