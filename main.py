@@ -125,6 +125,28 @@ async def post_init(application):
     # 重启后恢复：清理被锁定的验证用户 + 恢复未完成的支付轮询
     asyncio.create_task(_cleanup_stuck_verifications(application))
     asyncio.create_task(_recover_pending_payments(application))
+    # 首次启动：迁移已有群的管理员到 chat_admins 表
+    asyncio.create_task(_migrate_chat_admins(application))
+
+
+async def _migrate_chat_admins(application):
+    """首次启动：把 qunzu/pindao 里已有群的管理员同步到 chat_admins 表。"""
+    from database import has_chat_admin_data, get_all_groups, get_all_channels, sync_chat_admins
+    try:
+        if await has_chat_admin_data():
+            return  # 已有数据，跳过
+        logger.info("首次迁移：同步已有群管理员到 chat_admins 表...")
+        groups = await get_all_groups()
+        channels = await get_all_channels()
+        all_chats = list(groups) + list(channels)
+        for chat_id, _title in all_chats:
+            try:
+                await sync_chat_admins(chat_id, application.bot)
+            except Exception:
+                pass
+        logger.info(f"管理员迁移完成，已同步 {len(all_chats)} 个群/频道")
+    except Exception as e:
+        logger.error(f"migrate_chat_admins err: {e}")
 
 
 async def _auto_start_clones():

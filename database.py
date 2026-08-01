@@ -490,6 +490,14 @@ async def init_db():
                         PRIMARY KEY (chat_id, user_id)
                     )
                 """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS chat_admins (
+                        chat_id BIGINT NOT NULL,
+                        user_id BIGINT NOT NULL,
+                        PRIMARY KEY (chat_id, user_id),
+                        INDEX idx_user_id (user_id)
+                    )
+                """)
                 try:
                     await cur.execute("""
                         CREATE TABLE IF NOT EXISTS stickers (
@@ -619,6 +627,106 @@ async def get_all_channels():
     except Exception as e:
         logger.error(f"get channels err: {e}", exc_info=True)
         return []
+
+
+# ── 管理员缓存表（避免每次点群组列表都遍历所有群调 API） ──
+
+async def sync_chat_admins(chat_id: int, bot):
+    """拉取群/频道所有管理员，全量同步到 chat_admins 表。"""
+    try:
+        admins = await bot.get_chat_administrators(chat_id)
+        admin_ids = []
+        for member in admins:
+            if member.status in ["creator", "administrator"]:
+                admin_ids.append(member.user.id)
+        if not admin_ids:
+            return
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                # 先删后插（事务内）
+                await cur.execute("DELETE FROM chat_admins WHERE chat_id = %s", (chat_id,))
+                await cur.executemany(
+                    "INSERT IGNORE INTO chat_admins (chat_id, user_id) VALUES (%s, %s)",
+                    [(chat_id, uid) for uid in admin_ids])
+        logger.info(f"synced {len(admin_ids)} admins for chat {chat_id}")
+    except Exception as e:
+        logger.error(f"sync_chat_admins err for {chat_id}: {e}")
+
+
+async def add_chat_admin(chat_id: int, user_id: int):
+    """单个添加管理员记录。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT IGNORE INTO chat_admins (chat_id, user_id) VALUES (%s, %s)",
+                    (chat_id, user_id))
+    except Exception as e:
+        logger.error(f"add_chat_admin err: {e}")
+
+
+async def remove_chat_admin(chat_id: int, user_id: int):
+    """单个移除管理员记录。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "DELETE FROM chat_admins WHERE chat_id = %s AND user_id = %s",
+                    (chat_id, user_id))
+    except Exception as e:
+        logger.error(f"remove_chat_admin err: {e}")
+
+
+async def remove_chat_admins(chat_id: int):
+    """移除某个 chat 的所有管理员记录（bot 被踢/退群时调用）。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("DELETE FROM chat_admins WHERE chat_id = %s", (chat_id,))
+    except Exception as e:
+        logger.error(f"remove_chat_admins err: {e}")
+
+
+async def get_user_admin_groups(user_id: int) -> list:
+    """纯查表：返回用户是管理员的群组列表 [(chat_id, title), ...]."""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT q.chat_id, q.title FROM qunzu q "
+                    "INNER JOIN chat_admins a ON q.chat_id = a.chat_id "
+                    "WHERE a.user_id = %s", (user_id,))
+                return await cur.fetchall()
+    except Exception as e:
+        logger.error(f"get_user_admin_groups err: {e}", exc_info=True)
+        return []
+
+
+async def get_user_admin_channels(user_id: int) -> list:
+    """纯查表：返回用户是管理员的频道列表 [(chat_id, title), ...]."""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT p.chat_id, p.title FROM pindao p "
+                    "INNER JOIN chat_admins a ON p.chat_id = a.chat_id "
+                    "WHERE a.user_id = %s", (user_id,))
+                return await cur.fetchall()
+    except Exception as e:
+        logger.error(f"get_user_admin_channels err: {e}", exc_info=True)
+        return []
+
+
+async def has_chat_admin_data() -> bool:
+    """检查 chat_admins 表是否有数据（用于判断是否需要首次全量同步）。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT COUNT(*) FROM chat_admins")
+                row = await cur.fetchone()
+                return row and row[0] > 0
+    except Exception:
+        return False
 
 async def get_verify_settings(chat_id: int) -> dict:
     try:

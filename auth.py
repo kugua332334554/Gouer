@@ -655,6 +655,16 @@ async def chat_member_update_handler(update: Update, context: ContextTypes.DEFAU
     old_status = old.status
     new_status = new.status
 
+    # 管理员变动 → 更新 chat_admins 表
+    from database import add_chat_admin, remove_chat_admin
+    try:
+        if new_status == "administrator" and old_status != "administrator":
+            await add_chat_admin(chat.id, user.id)
+        elif old_status == "administrator" and new_status != "administrator":
+            await remove_chat_admin(chat.id, user.id)
+    except Exception:
+        pass
+
     if old_status in ["left", "banned", "restricted"] and new_status in ["member", "administrator"]:
         logger.info(f"Detected join/unban via chat_member for {user.id} in {chat.id}")
         if getattr(chat, "join_by_request", False):

@@ -11,8 +11,10 @@ from database import (
     update_user_timezone,
     register_channel,
     register_supergroup,
-    get_all_groups,
-    get_all_channels,
+    get_user_admin_groups,
+    get_user_admin_channels,
+    sync_chat_admins,
+    remove_chat_admins,
     get_verify_settings,
     update_verify_settings,
     get_welcome_settings,
@@ -93,15 +95,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args and len(args) > 0:
         param = args[0]
         if param == "group_panel":
-            groups = await get_all_groups()
-            my_groups = []
-            for chat_id, title in groups:
-                try:
-                    member = await context.bot.get_chat_member(chat_id, user.id)
-                    if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
-                        my_groups.append((chat_id, title))
-                except Exception:
-                    pass
+            my_groups = await get_user_admin_groups(user.id)
             if not my_groups:
                 ulang = await get_user_lang(user.id)
                 text = await t(user.id, "add_qun", BOT_USERNAME=f"@{bot_username}")
@@ -112,15 +106,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_html(text=text, reply_markup=reply_markup)
             return
         elif param == "pindao_panel":
-            channels = await get_all_channels()
-            my_channels = []
-            for chat_id, title in channels:
-                try:
-                    member = await context.bot.get_chat_member(chat_id, user.id)
-                    if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
-                        my_channels.append((chat_id, title))
-                except Exception:
-                    pass
+            my_channels = await get_user_admin_channels(user.id)
             if not my_channels:
                 ulang = await get_user_lang(user.id)
                 text = await t(user.id, "add_pindao", BOT_USERNAME=f"@{bot_username}")
@@ -181,15 +167,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "channel":
         await query.answer()
-        channels = await get_all_channels()
-        my_channels = []
-        for chat_id, title in channels:
-            try:
-                member = await context.bot.get_chat_member(chat_id, user.id)
-                if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
-                    my_channels.append((chat_id, title))
-            except Exception:
-                pass
+        my_channels = await get_user_admin_channels(user.id)
         if not my_channels:
             ulang = await get_user_lang(user_id)
             text = await t(user_id, "add_pindao", BOT_USERNAME=f"@{bot_username}")
@@ -201,15 +179,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "group":
         await query.answer()
-        groups = await get_all_groups()
-        my_groups = []
-        for chat_id, title in groups:
-            try:
-                member = await context.bot.get_chat_member(chat_id, user.id)
-                if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
-                    my_groups.append((chat_id, title))
-            except Exception:
-                pass
+        my_groups = await get_user_admin_groups(user.id)
         if not my_groups:
             ulang = await get_user_lang(user_id)
             text = await t(user_id, "add_qun", BOT_USERNAME=f"@{bot_username}")
@@ -224,10 +194,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, item_type, page_str = data.split("_")
         page = int(page_str)
         if item_type == "group":
-            items = await get_all_groups()
+            items = await get_user_admin_groups(user.id)
             text = await t(user.id, "add_qun", BOT_USERNAME=f"@{bot_username}")
         else:
-            items = await get_all_channels()
+            items = await get_user_admin_channels(user.id)
             text = await t(user.id, "add_pindao", BOT_USERNAME=f"@{bot_username}")
         reply_markup = get_pagination_keyboard(items, page=page, item_type=item_type, bot_username=bot_username, per_page=5)
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=reply_markup)
@@ -481,6 +451,8 @@ async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_T
                 asyncio.create_task(auto_delete_message(context.bot, chat.id, warn_msg.message_id, 300))
         except Exception as e:
             pass
+        # 同步该群/频道管理员到 chat_admins 表
+        asyncio.create_task(sync_chat_admins(chat.id, context.bot))
         owner_id = None
         try:
             admins = await context.bot.get_chat_administrators(chat.id)
@@ -508,6 +480,9 @@ async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_T
             asyncio.create_task(auto_delete_message(context.bot, chat.id, msg.message_id, 300))
         except Exception:
             pass
+    elif new_status in [ChatMember.LEFT, ChatMember.BANNED]:
+        # Bot 被踢/退群，清理管理员缓存
+        asyncio.create_task(remove_chat_admins(chat.id))
     elif new_status in [ChatMember.MEMBER, ChatMember.RESTRICTED] and old_status in [ChatMember.LEFT, ChatMember.BANNED]:
         try:
             if chat.type == Chat.GROUP:
