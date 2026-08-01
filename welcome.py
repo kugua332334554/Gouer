@@ -29,7 +29,7 @@ def get_message_html(message) -> str:
         return html.escape(text)
     utf16_bytes = text.encode("utf-16-le")
     events = []
-    for entity in entities:
+    for idx, entity in enumerate(entities):
         start = entity.offset * 2
         end = (entity.offset + entity.length) * 2
         open_tag = None
@@ -70,12 +70,16 @@ def get_message_html(message) -> str:
             open_tag = "<blockquote>"
             close_tag = "</blockquote>"
         if open_tag and close_tag:
-            events.append((start, 1, open_tag))
-            events.append((end, 0, close_tag))
-    events.sort(key=lambda x: (x[0], x[1]))
+            # (pos, is_open, sort_order, tag)
+            # close 的 sort_order 取负，保证同位置时先开的标签后关（栈序）
+            events.append((start, 1, idx, open_tag))
+            events.append((end, 0, -idx, close_tag))
+    # 排序：位置升序 → 闭标签(0)先于开标签(1) → sort_order 升序
+    #       开: idx 小的外层先开，关: -idx 小的内层先关（栈序）
+    events.sort(key=lambda x: (x[0], x[1], x[2]))
     result = []
     last_idx = 0
-    for offset, _, tag in events:
+    for offset, _, _, tag in events:
         if offset > last_idx:
             chunk = utf16_bytes[last_idx:offset].decode("utf-16-le")
             result.append(html.escape(chunk))
