@@ -140,7 +140,7 @@ async def autobutton_callback_handler(update: Update, context: ContextTypes.DEFA
 
     if data.startswith("ab_editbtn_"):
         await query.answer()
-        _AWAIT_AUTOBUTTON[user_id] = {"type": "edit_buttons", "chat_id": chat_id}
+        _AWAIT_AUTOBUTTON[user_id] = {"type": "edit_buttons", "chat_id": chat_id, "conv_chat": update.effective_chat.id}
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"ab_panel_{chat_id}")]])
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑自动按钮</b>\n\n'
@@ -161,6 +161,9 @@ async def autobutton_input_handler(update: Update, context: ContextTypes.DEFAULT
         return
     await_data = _AWAIT_AUTOBUTTON.get(user_id)
     if not await_data:
+        return
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    if update.effective_chat is None or update.effective_chat.id != await_data.get("conv_chat"):
         return
     message = update.message
     if message is None or not message.text:

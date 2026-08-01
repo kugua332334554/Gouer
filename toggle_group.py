@@ -89,7 +89,7 @@ async def toggle_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if data.startswith(prefix):
             await query.answer()
             chat_id = int(data.split("_")[-1])
-            _AWAIT_TOGGLE[user_id] = {"chat_id": chat_id, "field": field}
+            _AWAIT_TOGGLE[user_id] = {"chat_id": chat_id, "field": field, "conv_chat": update.effective_chat.id}
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"tg_panel_{chat_id}")]])
             await query.message.reply_html(f"请发送<b>{label}</b>:", reply_markup=kb)
             return
@@ -103,7 +103,7 @@ async def toggle_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if data.startswith(prefix):
             await query.answer()
             chat_id = int(data.split("_")[-1])
-            _AWAIT_TOGGLE[user_id] = {"chat_id": chat_id, "field": field}
+            _AWAIT_TOGGLE[user_id] = {"chat_id": chat_id, "field": field, "conv_chat": update.effective_chat.id}
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"tg_panel_{chat_id}")]])
             await query.message.reply_html(
                 f"请发送<b>{label}</b>文字\n支持高级版表情和 HTML\n发送 <code>0</code> 清除",
@@ -119,7 +119,7 @@ async def toggle_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if data.startswith(prefix):
             await query.answer()
             chat_id = int(data.split("_")[-1])
-            _AWAIT_TOGGLE[user_id] = {"chat_id": chat_id, "field": field}
+            _AWAIT_TOGGLE[user_id] = {"chat_id": chat_id, "field": field, "conv_chat": update.effective_chat.id}
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"tg_panel_{chat_id}")]])
             await query.message.reply_html(
                 f"请发送<b>{label}</b>（图片/视频/GIF）\n发送 <code>0</code> 清除",
@@ -135,7 +135,7 @@ async def toggle_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         if data.startswith(prefix):
             await query.answer()
             chat_id = int(data.split("_")[-1])
-            _AWAIT_TOGGLE[user_id] = {"chat_id": chat_id, "field": field}
+            _AWAIT_TOGGLE[user_id] = {"chat_id": chat_id, "field": field, "conv_chat": update.effective_chat.id}
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"tg_panel_{chat_id}")]])
             await query.message.reply_html(
                 f"请发送<b>{label}</b>配置：\n\n"
@@ -155,6 +155,9 @@ async def toggle_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 async def toggle_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in _AWAIT_TOGGLE:
+        return
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    if update.effective_chat is None or update.effective_chat.id != _AWAIT_TOGGLE.get(user_id, {}).get("conv_chat"):
         return
     msg = update.message
     if not msg:

@@ -135,6 +135,7 @@ async def antispam_callback_handler(update: Update, context: ContextTypes.DEFAUL
         wl_text = "\n".join(f"· {uid}" for uid in wl) if wl else "空"
         text = f"<b>白名单</b>（{len(wl)}人）\n\n{wl_text}\n\n发送用户ID添加，发送 <code>del ID</code> 删除"
         _AWAIT_ANTISPAM[user_id] = chat_id
+        _AWAIT_ANTISPAM[f"{user_id}_conv"] = update.effective_chat.id
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 返回", callback_data=f"as_panel_{chat_id}")]])
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=kb)
         return
@@ -143,6 +144,7 @@ async def antispam_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if data.startswith("as_mutedur_"):
         await query.answer()
         _AWAIT_ANTISPAM[user_id] = chat_id
+        _AWAIT_ANTISPAM[f"{user_id}_conv"] = update.effective_chat.id
         _AWAIT_ANTISPAM[f"{user_id}_field"] = "mute_duration"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 返回", callback_data=f"as_panel_{chat_id}")]])
         await query.message.reply_html("请发送禁言时长（分钟）：", reply_markup=kb)
@@ -152,6 +154,7 @@ async def antispam_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if data.startswith("as_floodset_"):
         await query.answer()
         _AWAIT_ANTISPAM[user_id] = chat_id
+        _AWAIT_ANTISPAM[f"{user_id}_conv"] = update.effective_chat.id
         _AWAIT_ANTISPAM[f"{user_id}_field"] = "flood"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 返回", callback_data=f"as_panel_{chat_id}")]])
         await query.message.reply_html("请发送刷屏阈值，格式：<code>条数|秒数</code>\n示例：<code>5|10</code>（10秒内5条）", reply_markup=kb)
@@ -161,6 +164,7 @@ async def antispam_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if data.startswith("as_warndel_"):
         await query.answer()
         _AWAIT_ANTISPAM[user_id] = chat_id
+        _AWAIT_ANTISPAM[f"{user_id}_conv"] = update.effective_chat.id
         _AWAIT_ANTISPAM[f"{user_id}_field"] = "warn_delete"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 返回", callback_data=f"as_panel_{chat_id}")]])
         await query.message.reply_html("请发送提示消息删除时间（秒）：", reply_markup=kb)
@@ -169,8 +173,13 @@ async def antispam_callback_handler(update: Update, context: ContextTypes.DEFAUL
 
 async def antispam_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    conv = _AWAIT_ANTISPAM.get(f"{user_id}_conv")
+    if conv is not None and (update.effective_chat is None or update.effective_chat.id != conv):
+        return
     field = _AWAIT_ANTISPAM.pop(f"{user_id}_field", None)
     chat_id = _AWAIT_ANTISPAM.pop(user_id, None)
+    _AWAIT_ANTISPAM.pop(f"{user_id}_conv", None)
     if not chat_id:
         return
 

@@ -380,7 +380,7 @@ async def _do_step_skip(context, chat_id: str, dingshi_id: int, current_step: st
         await context.bot.send_message(chat_id=target_chat_id, text=f'{EMOJI_SUCCESS} 定时消息设置完成！')
         await send_dingshi_detail_panel(context, chat_id, dingshi_id, target_chat_id)
         return
-    _AWAIT_DINGSHI_INPUT[user_id] = {"type": next_s, "chat_id": chat_id, "dingshi_id": dingshi_id}
+    _AWAIT_DINGSHI_INPUT[user_id] = {"type": next_s, "chat_id": chat_id, "dingshi_id": dingshi_id, "conv_chat": target_chat_id}
     kb = get_step_keyboard(chat_id, dingshi_id, next_s, show_clear=next_s in ("text", "media", "buttons"), show_skip=True)
     prompts = {
         "text": (f'<tg-emoji emoji-id="{TEXT_EMOJI_ID}">📝</tg-emoji> <b>第二步：设置消息文本</b>\n\n支持 HTML 和文字字体格式（加粗、链接、删透、块引用、<b>自定义会员表情</b>等）\n\n请发送定时消息的文本内容：', True),
@@ -451,7 +451,7 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
     if data.startswith("dingshi_add_"):
         chat_id = data.split("_")[2]
         await query.answer()
-        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "basic", "chat_id": chat_id}
+        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "basic", "chat_id": chat_id, "conv_chat": update.effective_chat.id}
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"group_dingshi_{chat_id}")]])
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{CLOCK_EMOJI_ID}">⏰</tg-emoji> <b>添加定时消息</b>\n\n'
@@ -501,7 +501,7 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
         item = await get_dingshi_by_id(dingshi_id)
         current_text = item.get("content_text") or "未设置"
         await query.answer()
-        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "text", "chat_id": chat_id, "dingshi_id": dingshi_id}
+        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "text", "chat_id": chat_id, "dingshi_id": dingshi_id, "conv_chat": update.effective_chat.id}
         kb = get_step_keyboard(chat_id, dingshi_id, "text", show_clear=True, show_skip=False)
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{TEXT_EMOJI_ID}">📝</tg-emoji> <b>编辑定时消息文本</b>\n\n'
@@ -516,7 +516,7 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
         chat_id = parts[3]
         dingshi_id = int(parts[4])
         await query.answer()
-        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "media", "chat_id": chat_id, "dingshi_id": dingshi_id}
+        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "media", "chat_id": chat_id, "dingshi_id": dingshi_id, "conv_chat": update.effective_chat.id}
         kb = get_step_keyboard(chat_id, dingshi_id, "media", show_clear=True, show_skip=True)
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{MEDIA_EMOJI_ID}">🖼</tg-emoji> <b>编辑定时消息媒体</b>\n\n'
@@ -530,7 +530,7 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
         chat_id = parts[3]
         dingshi_id = int(parts[4])
         await query.answer()
-        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "buttons", "chat_id": chat_id, "dingshi_id": dingshi_id}
+        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "buttons", "chat_id": chat_id, "dingshi_id": dingshi_id, "conv_chat": update.effective_chat.id}
         kb = get_step_keyboard(chat_id, dingshi_id, "buttons", show_clear=True, show_skip=True)
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑定时消息按钮</b>\n\n'
@@ -554,7 +554,7 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
         else:
             current = f'{item["schedule_time"]}|{format_days_display(item.get("schedule_days", "*"))}'
         await query.answer()
-        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "basic", "chat_id": chat_id, "dingshi_id": dingshi_id}
+        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "basic", "chat_id": chat_id, "dingshi_id": dingshi_id, "conv_chat": update.effective_chat.id}
         kb = get_step_keyboard(chat_id, dingshi_id, "basic", show_clear=False, show_skip=False)
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{CLOCK_EMOJI_ID}">⏰</tg-emoji> <b>修改发送时间</b>\n\n'
@@ -598,6 +598,9 @@ async def dingshi_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
     logger.info(f"dingshi_input_handler called, await_data={'set' if await_data else 'None'}, user={user_id}")
     if not await_data:
         return
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    if update.effective_chat is None or update.effective_chat.id != await_data.get("conv_chat"):
+        return
     try:
         chat_id = int(await_data["chat_id"])
         input_type = await_data["type"]
@@ -629,7 +632,7 @@ async def dingshi_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 else:
                     new_id = await create_dingshi(chat_id, "", "*", interval_mins)
                     if new_id:
-                        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "text", "chat_id": str(chat_id), "dingshi_id": new_id}
+                        _AWAIT_DINGSHI_INPUT[user_id] = {"type": "text", "chat_id": str(chat_id), "dingshi_id": new_id, "conv_chat": update.effective_chat.id}
                         kb = get_step_keyboard(str(chat_id), new_id, "text", show_clear=False, show_skip=True)
                         await message.reply_html(
                             f'{EMOJI_SUCCESS} 间隔设置成功（每 <b>{interval_mins}</b> 分钟）！\n\n'
@@ -669,7 +672,7 @@ async def dingshi_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
             else:
                 new_id = await create_dingshi(chat_id, schedule_time, days_raw)
                 if new_id:
-                    _AWAIT_DINGSHI_INPUT[user_id] = {"type": "text", "chat_id": str(chat_id), "dingshi_id": new_id}
+                    _AWAIT_DINGSHI_INPUT[user_id] = {"type": "text", "chat_id": str(chat_id), "dingshi_id": new_id, "conv_chat": update.effective_chat.id}
                     kb = get_step_keyboard(str(chat_id), new_id, "text", show_clear=False, show_skip=True)
                     await message.reply_html(
                         f'{EMOJI_SUCCESS} 时间设置成功！\n\n'
@@ -690,7 +693,7 @@ async def dingshi_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
             raw_text = message.text.strip()
             new_text = get_message_html(message)
             await update_dingshi(dingshi_id, content_text=new_text)
-            _AWAIT_DINGSHI_INPUT[user_id] = {"type": "media", "chat_id": str(chat_id), "dingshi_id": dingshi_id}
+            _AWAIT_DINGSHI_INPUT[user_id] = {"type": "media", "chat_id": str(chat_id), "dingshi_id": dingshi_id, "conv_chat": update.effective_chat.id}
             kb = get_step_keyboard(str(chat_id), dingshi_id, "media", show_clear=bool(dingshi_id), show_skip=True)
             await message.reply_html(
                 f'{EMOJI_SUCCESS} 文本内容已设置！\n\n'
@@ -729,7 +732,7 @@ async def dingshi_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 await message.reply_html(f'{EMOJI_WARN} 文件大小超过 <b>5MB</b> 限制，请处理后重新发送！', reply_markup=kb)
                 return
             await update_dingshi(dingshi_id, media_type=media_type, media_file_id=media_file_id)
-            _AWAIT_DINGSHI_INPUT[user_id] = {"type": "buttons", "chat_id": str(chat_id), "dingshi_id": dingshi_id}
+            _AWAIT_DINGSHI_INPUT[user_id] = {"type": "buttons", "chat_id": str(chat_id), "dingshi_id": dingshi_id, "conv_chat": update.effective_chat.id}
             kb = get_step_keyboard(str(chat_id), dingshi_id, "buttons", show_clear=bool(dingshi_id), show_skip=True)
             await message.reply_html(
                 f'{EMOJI_SUCCESS} 媒体附件已设置！\n\n'

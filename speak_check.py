@@ -102,6 +102,7 @@ async def speak_check_callback_handler(update: Update, context: ContextTypes.DEF
     if data.startswith("spk_setchannel_"):
         await query.answer()
         _AWAIT_SPEAK_CHANNEL[user_id] = chat_id
+        _AWAIT_SPEAK_CHANNEL[f"{user_id}_conv"] = update.effective_chat.id
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"spk_panel_{chat_id}")]])
         await query.message.reply_html("请发送要检查的频道 @username 或频道 ID:", reply_markup=kb)
         return
@@ -171,11 +172,16 @@ async def speak_check_input_handler(update: Update, context: ContextTypes.DEFAUL
     user_id = update.effective_user.id
     if user_id not in _AWAIT_SPEAK_CHANNEL:
         return
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    conv = _AWAIT_SPEAK_CHANNEL.get(f"{user_id}_conv")
+    if conv is not None and (update.effective_chat is None or update.effective_chat.id != conv):
+        return
     msg = update.message
     if not msg or not msg.text:
         return
     raw = msg.text.strip()
     chat_id = _AWAIT_SPEAK_CHANNEL.pop(user_id)
+    _AWAIT_SPEAK_CHANNEL.pop(f"{user_id}_conv", None)
     await database.update_message_check_settings(chat_id, channel_username=raw.lstrip("@"))
     await msg.reply_html(f"✅ 订阅频道已设为 @{raw.lstrip('@')}")
     s = await database.get_message_check_settings(chat_id)

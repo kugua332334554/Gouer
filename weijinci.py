@@ -258,7 +258,7 @@ async def weijinci_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if data.startswith("weijinci_setpenalty_"):
         penalty, mute_duration = _parse_penalty_from_callback(data)
         penalty_text = format_penalty_display(penalty, mute_duration)
-        _AWAIT_WEIJINCI_INPUT[user_id] = {"type": "add_word", "chat_id": chat_id, "penalty": penalty, "mute_duration": mute_duration}
+        _AWAIT_WEIJINCI_INPUT[user_id] = {"type": "add_word", "chat_id": chat_id, "penalty": penalty, "mute_duration": mute_duration, "conv_chat": update.effective_chat.id}
         await query.answer(f"处罚方式：{penalty_text}")
         await query.message.delete()
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"group_weijinci_{chat_id}")]])
@@ -294,6 +294,9 @@ async def weijinci_input_handler(update: Update, context: ContextTypes.DEFAULT_T
         await_data = _AWAIT_WEIJINCI_INPUT.get(user_id)
         logger.info(f"weijinci_input_handler called, await_data={'set' if await_data else 'None'}, user={user_id}")
         if not await_data:
+            return
+        # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+        if update.effective_chat is None or update.effective_chat.id != await_data.get("conv_chat"):
             return
         message = update.message
         if message is None or not message.text:

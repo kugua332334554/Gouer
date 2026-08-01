@@ -220,7 +220,7 @@ async def ai_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if data.startswith("ai_settrigger_"):
         await query.answer()
-        _AWAIT_AI_INPUT[user_id] = {"type": "trigger", "chat_id": chat_id}
+        _AWAIT_AI_INPUT[user_id] = {"type": "trigger", "chat_id": chat_id, "conv_chat": update.effective_chat.id}
         s = await get_ai_settings(chat_id)
         current = s["chat_trigger"] or "未设置"
         current_triggers = parse_triggers(s["chat_trigger"] or "")
@@ -235,7 +235,7 @@ async def ai_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if data.startswith("ai_setprompt_"):
         await query.answer()
-        _AWAIT_AI_INPUT[user_id] = {"type": "prompt", "chat_id": chat_id}
+        _AWAIT_AI_INPUT[user_id] = {"type": "prompt", "chat_id": chat_id, "conv_chat": update.effective_chat.id}
         s = await get_ai_settings(chat_id)
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"ai_panel_{chat_id}")]])
         await query.message.reply_html(f'当前提示词：\n<blockquote expandable>{s["chat_prompt"][:200]}</blockquote>\n\n请发送新提示词（不超过300字），发送 0 恢复默认：', reply_markup=kb)
@@ -264,6 +264,9 @@ async def ai_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await_data = _AWAIT_AI_INPUT.get(user_id)
     if not await_data:
+        return
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    if update.effective_chat is None or update.effective_chat.id != await_data.get("conv_chat"):
         return
     message = update.message
     if not message or not message.text:

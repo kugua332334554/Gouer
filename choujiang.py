@@ -544,7 +544,7 @@ async def choujiang_callback_handler(update: Update, context: ContextTypes.DEFAU
         ctype, method = parts[3], parts[4]
         await query.answer()
         await query.message.delete()
-        _AWAIT_CHOUJIANG_INPUT[user_id] = {"type": "create_title", "chat_id": str(chat_id), "ctype": ctype, "method": method, "prizes": []}
+        _AWAIT_CHOUJIANG_INPUT[user_id] = {"type": "create_title", "chat_id": str(chat_id), "ctype": ctype, "method": method, "prizes": [], "conv_chat": update.effective_chat.id}
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"group_choujiang_{chat_id}")]])
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f'<tg-emoji emoji-id="{GIFT_EMOJI_ID}">🎁</tg-emoji> <b>第一步：输入抽奖标题</b>\n\n类型：{LOTTERY_TYPES[ctype]}\n开奖：{DRAW_METHODS[method]}\n\n请发送抽奖标题：', parse_mode="HTML", reply_markup=kb)
         return
@@ -811,6 +811,9 @@ async def choujiang_input_handler(update: Update, context: ContextTypes.DEFAULT_
 
     await_data = _AWAIT_CHOUJIANG_INPUT.get(user_id)
     if not await_data:
+        return
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    if update.effective_chat is None or update.effective_chat.id != await_data.get("conv_chat"):
         return
     chat_id_str = await_data.get("chat_id", "0")
     chat_id = int(chat_id_str)

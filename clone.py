@@ -92,7 +92,7 @@ async def clone_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     # ── 克隆机器人：提示输入 Token ──
     if data == "clone_add":
         await query.answer()
-        _AWAIT_TOKEN[user_id] = True
+        _AWAIT_TOKEN[user_id] = update.effective_chat.id
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data="clone")]])
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{EMOJI_ROBOT}">🤖</tg-emoji> <b>克隆机器人</b>\n\n'
@@ -209,6 +209,9 @@ async def clone_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 async def clone_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in _AWAIT_TOKEN:
+        return
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    if update.effective_chat is None or update.effective_chat.id != _AWAIT_TOKEN.get(user_id):
         return
     msg = update.message
     if not msg or not msg.text:

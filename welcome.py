@@ -302,7 +302,7 @@ async def welcome_callback_handler(update: Update, context: ContextTypes.DEFAULT
             )
 
     elif action == "edit":
-        context.user_data["await_welcome_input"] = {"type": sub_action, "chat_id": chat_id}
+        context.user_data["await_welcome_input"] = {"type": sub_action, "chat_id": chat_id, "conv_chat": update.effective_chat.id}
         cancel_btn = InlineKeyboardButton("« 取消", callback_data=f"wel_cancel_{chat_id}")
         reply_markup = InlineKeyboardMarkup([[cancel_btn]])
 
@@ -344,6 +344,9 @@ async def welcome_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
     await_data = context.user_data.get("await_welcome_input")
     if not await_data:
+        return
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    if update.effective_chat is None or update.effective_chat.id != await_data.get("conv_chat"):
         return
     chat_id = int(await_data["chat_id"])
     input_type = await_data["type"]

@@ -245,7 +245,7 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
 
     if data == "kf_create":
         await query.answer()
-        _AWAIT_KUAISU_INPUT[user_id] = {"type": "create_info"}
+        _AWAIT_KUAISU_INPUT[user_id] = {"type": "create_info", "conv_chat": update.effective_chat.id}
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data="post_fast")]])
         await query.message.reply_html(f'<tg-emoji emoji-id="{SEND_EMOJI_ID}">📝</tg-emoji> <b>添加快捷消息</b>\n\n请发送快捷消息的名称：', reply_markup=kb)
         return
@@ -283,7 +283,7 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
         parts = data.split("_")
         ks_id = int(parts[-1])
         await query.answer()
-        _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_text", "ks_id": ks_id}
+        _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_text", "ks_id": ks_id, "conv_chat": update.effective_chat.id}
         kb = get_cancel_keyboard(ks_id, int(parts[3]))
         await query.message.reply_html(f'<tg-emoji emoji-id="{TEXT_EMOJI_ID}">📝</tg-emoji> <b>编辑文本</b>\n\n支持 HTML 和 <b>自定义会员表情</b>\n\n请发送新的文本内容：', reply_markup=kb)
         return
@@ -292,7 +292,7 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
         parts = data.split("_")
         ks_id = int(parts[-1])
         await query.answer()
-        _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_media", "ks_id": ks_id}
+        _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_media", "ks_id": ks_id, "conv_chat": update.effective_chat.id}
         kb = get_cancel_keyboard(ks_id, int(parts[3]))
         await query.message.reply_html(f'<tg-emoji emoji-id="{MEDIA_EMOJI_ID}">🖼</tg-emoji> <b>编辑媒体</b>\n\n请发送图片、视频、文件、音频、GIF、语音或视频备注，大小不超过 <b>5MB</b>\n发送 <code>清空</code> 清除', reply_markup=kb)
         return
@@ -301,7 +301,7 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
         parts = data.split("_")
         ks_id = int(parts[-1])
         await query.answer()
-        _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_buttons", "ks_id": ks_id}
+        _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_buttons", "ks_id": ks_id, "conv_chat": update.effective_chat.id}
         kb = get_cancel_keyboard(ks_id, int(parts[3]))
         await query.message.reply_html(f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑按钮</b>\n\n格式：<b>颜色（可选）-按钮文字-链接</b>\n颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n用 <b>&&</b> 分隔同行\n\n示例：\n<code>红色-按钮1-https://a.com && 蓝色-按钮2-https://b.com</code>\n发送 <code>清空</code> 清除', reply_markup=kb)
         return
@@ -311,7 +311,7 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
         ks_id = int(parts[-1])
         item = await get_kuaisu_by_id(ks_id)
         await query.answer()
-        _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_info", "ks_id": ks_id}
+        _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_info", "ks_id": ks_id, "conv_chat": update.effective_chat.id}
         kb = get_cancel_keyboard(ks_id, int(parts[3]))
         await query.message.reply_html(f'当前名称：<code>{item["name"]}</code>\n当前关键词：<code>{item["keyword"]}</code>\n\n请发送新名称：', reply_markup=kb)
         return
@@ -356,6 +356,9 @@ async def kuaisufabu_input_handler(update: Update, context: ContextTypes.DEFAULT
         return
     await_data = _AWAIT_KUAISU_INPUT.get(user_id)
     if not await_data:
+        return
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    if update.effective_chat is None or update.effective_chat.id != await_data.get("conv_chat"):
         return
     message = update.message
     if message is None:

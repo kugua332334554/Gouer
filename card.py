@@ -258,7 +258,7 @@ async def card_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     if data.startswith("card_adduser_"):
         await query.answer()
-        _AWAIT_CARD[user_id] = {"type": "add_user", "chat_id": chat_id}
+        _AWAIT_CARD[user_id] = {"type": "add_user", "chat_id": chat_id, "conv_chat": update.effective_chat.id}
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"card_users_{chat_id}_0")]])
         await query.message.reply_html(f'<tg-emoji emoji-id="{ADD_EMOJI}">➕</tg-emoji> <b>添加用户</b>\n\n请发送要添加的用户 ID（数字）：', reply_markup=kb)
         return
@@ -280,6 +280,9 @@ async def card_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     await_data = _AWAIT_CARD.get(user_id)
     if not await_data:
+        return
+    # 只消费在发起设置的同一会话里的消息，避免把其他会话的普通发言当成设置输入
+    if update.effective_chat is None or update.effective_chat.id != await_data.get("conv_chat"):
         return
     message = update.message
     if not message or not message.text:
