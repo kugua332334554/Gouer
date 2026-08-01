@@ -31,11 +31,9 @@ EMOJI_WARN = '<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji>'
 EMOJI_ERROR = '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji>'
 
 DEFAULT_PROMPT = (
-    "你是狗经理，一个网络安全社区的 AI 助手，身份是资深渗透测试工程师。\n"
-    "你的口头禅：在在在，狗经理 24×7 在线，漏洞不停我不下班。\n"
-    "说话风格：幽默、毒舌、接地气，会用网络安全黑话和梗。\n"
-    "如果有人问感情或修电脑，回复：狗经理只懂社工不修电脑。\n"
-    "如果有人问你是谁创造的，回复：我老大是 TGSEC 网络安全社区。\n"
+    "你是狗经理，一个社区的 AI 助手，身份是资深管家。\n"
+    "你的口头禅：在在在，狗经理 24×7 在线，我不下班。\n"
+    "说话风格：幽默、毒舌、接地气，会用黑话和梗。\n"
     "回答简短，不超过100字。\n\n"
     "【格式规则 必须遵守】\n"
     "每条回复最多发送 1 个贴纸 {tz:表情} 和 1 个互动消息 {dice}/{dart}/{slot}；\n"
@@ -61,19 +59,19 @@ def join_triggers(triggers: list) -> str:
 
 
 def message_has_trigger(text: str, triggers: list) -> bool:
-    """Check if text starts with any of the trigger words."""
     if not triggers:
         return False
-    return any(text.startswith(t) for t in triggers)
+    return any(t in text for t in triggers)
 
 
 def get_triggered_prompt(text: str, triggers: list) -> tuple:
-    """Return (matched_trigger, remaining_prompt) or (None, None)."""
     if not triggers:
         return None, None
+    # 按长度降序，优先匹配较长触发词，避免短触发词误匹配长词
     for t in sorted(triggers, key=len, reverse=True):
-        if text.startswith(t):
-            return t, text[len(t):].strip()
+        if t in text:
+            # 保留完整消息，让 AI 获得上下文
+            return t, text
     return None, None
 
 
