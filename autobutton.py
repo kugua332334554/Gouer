@@ -104,6 +104,8 @@ async def autobutton_callback_handler(update: Update, context: ContextTypes.DEFA
         return
 
     if data.startswith("ab_panel_"):
+        # 用户通过“取消”返回面板，清除挂起的输入等待状态
+        _AWAIT_AUTOBUTTON.pop(user_id, None)
         await query.answer()
         settings = await get_autobutton_settings(chat_id)
         title = await t(user_id, "autobtn_title") if user_id else "自动按钮"

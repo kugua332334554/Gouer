@@ -229,6 +229,8 @@ async def card_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     if data.startswith("card_users_"):
+        # 用户通过“取消”返回用户列表，清除挂起的输入等待状态
+        _AWAIT_CARD.pop(user_id, None)
         page = int(data.split("_")[-1])
         await query.answer()
         await query.message.delete()

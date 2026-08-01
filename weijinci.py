@@ -206,6 +206,8 @@ async def weijinci_callback_handler(update: Update, context: ContextTypes.DEFAUL
         return
 
     if data.startswith("group_weijinci_"):
+        # 用户通过“取消”返回，清除挂起的输入等待状态
+        _AWAIT_WEIJINCI_INPUT.pop(user_id, None)
         await query.answer()
         await query.message.delete()
         await send_weijinci_panel(context, int(chat_id), update.effective_chat.id, user_id)

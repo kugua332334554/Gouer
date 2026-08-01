@@ -232,6 +232,8 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
 
     if data == "post_fast":
         await query.answer()
+        # 用户通过“取消/返回”离开了设置流程，清除挂起的输入等待状态
+        _AWAIT_KUAISU_INPUT.pop(user_id, None)
         global _bot_username
         if not _bot_username:
             try:
@@ -251,6 +253,8 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
         return
 
     if data.startswith("kf_detail_"):
+        # 用户从编辑状态的“取消”返回详情，清除挂起的输入等待状态
+        _AWAIT_KUAISU_INPUT.pop(user_id, None)
         parts = data.split("_")
         ks_id = int(parts[-1])
         item = await get_kuaisu_by_id(ks_id)

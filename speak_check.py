@@ -78,6 +78,9 @@ async def speak_check_callback_handler(update: Update, context: ContextTypes.DEF
 
     # 主面板
     if data.startswith("spk_panel_"):
+        # 用户通过“取消”返回面板，清除挂起的输入等待状态
+        _AWAIT_SPEAK_CHANNEL.pop(user_id, None)
+        _AWAIT_SPEAK_CHANNEL.pop(f"{user_id}_conv", None)
         await query.answer()
         s = await database.get_message_check_settings(chat_id)
         await _show_panel(query, chat_id, s)

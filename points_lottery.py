@@ -67,6 +67,8 @@ async def lottery_callback_handler(update: Update, context: ContextTypes.DEFAULT
         if member.status not in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
             await query.answer("⚠️ 只有管理员才能管理抽奖。", show_alert=True)
             return
+        # 用户通过“取消”返回管理面板，清除挂起的输入等待状态
+        _AWAIT_LOTTERY.pop(user_id, None)
         await query.answer()
         lotteries = await database.get_lotteries(chat_id)
         await query.edit_message_text(

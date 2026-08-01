@@ -180,6 +180,8 @@ async def ai_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     if data.startswith("ai_panel_"):
+        # 用户通过“取消”返回面板，清除挂起的输入等待状态
+        _AWAIT_AI_INPUT.pop(user_id, None)
         await query.answer()
         settings = await get_ai_settings(chat_id)
         trigger_raw = settings["chat_trigger"] or ""

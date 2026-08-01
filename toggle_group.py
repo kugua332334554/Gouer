@@ -60,6 +60,8 @@ async def toggle_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 
     # ── 主面板 ──
     if data.startswith("tg_panel_"):
+        # 用户通过“取消”返回面板，清除挂起的输入等待状态
+        _AWAIT_TOGGLE.pop(user_id, None)
         await query.answer()
         s = await database.get_toggle_settings(chat_id)
         ok = s["open_keyword"] or "未设置"

@@ -521,6 +521,8 @@ async def choujiang_callback_handler(update: Update, context: ContextTypes.DEFAU
         return
 
     if data.startswith("group_choujiang_"):
+        # 用户通过“取消”返回列表，清除挂起的输入等待状态
+        _AWAIT_CHOUJIANG_INPUT.pop(user_id, None)
         await query.answer()
         await query.message.delete()
         await send_choujiang_panel(context, chat_id, update.effective_chat.id, user_id)

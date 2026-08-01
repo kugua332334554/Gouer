@@ -442,6 +442,8 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
         return
 
     if data.startswith("group_dingshi_"):
+        # 用户通过“取消”返回列表，清除挂起的输入等待状态
+        _AWAIT_DINGSHI_INPUT.pop(user_id, None)
         chat_id = data.split("_")[2]
         await query.answer()
         await query.message.delete()
@@ -465,6 +467,8 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
         return
 
     if data.startswith("dingshi_detail_"):
+        # 用户从编辑状态的“取消”返回详情，清除挂起的输入等待状态
+        _AWAIT_DINGSHI_INPUT.pop(user_id, None)
         parts = data.split("_")
         chat_id = parts[2]
         dingshi_id = int(parts[3])

@@ -185,6 +185,8 @@ async def kwr_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # ── 主面板 ──
     if data.startswith("kwr_panel_"):
+        # 用户通过“取消”返回面板，清除挂起的输入等待状态
+        _AWAIT_KWR.pop(user_id, None)
         chat_id = parts[2]
         await query.answer()
         await query.message.delete()
@@ -211,6 +213,8 @@ async def kwr_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # ── 关键词详情 ──
     if data.startswith("kwr_detail_"):
+        # 用户从编辑状态的“取消”返回详情，清除挂起的输入等待状态
+        _AWAIT_KWR.pop(user_id, None)
         chat_id = parts[2]
         reply_id = int(parts[3])
         await query.answer()

@@ -84,6 +84,10 @@ async def antispam_callback_handler(update: Update, context: ContextTypes.DEFAUL
         return
 
     if data.startswith("as_panel_"):
+        # 用户通过“返回”离开设置流程，清除挂起的输入等待状态
+        _AWAIT_ANTISPAM.pop(user_id, None)
+        _AWAIT_ANTISPAM.pop(f"{user_id}_field", None)
+        _AWAIT_ANTISPAM.pop(f"{user_id}_conv", None)
         await query.answer()
         s = await database.get_antispam_settings(chat_id)
         text = f'<tg-emoji emoji-id="{SETTINGS_EMOJI}">⚙️</tg-emoji> <b>反垃圾</b>\n\n刷屏: {s["flood_count"]}条/{s["flood_timeout"]}s\n惩罚: {PENALTY_OPTIONS.get(s["penalty"])}'

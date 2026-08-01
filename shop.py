@@ -64,6 +64,8 @@ async def shop_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         chat_id = int(parts[2])
         if not await _check_admin(context, chat_id, user_id):
             await query.answer("⚠️ 只有管理员才能管理商城。", show_alert=True); return
+        # 用户通过“取消”返回管理面板，清除挂起的输入等待状态
+        _AWAIT_SHOP.pop(user_id, None)
         await query.answer()
         items = await database.get_shop_items(chat_id)
         await query.edit_message_text(
