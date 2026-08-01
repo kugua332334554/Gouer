@@ -583,6 +583,12 @@ async def fortune_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"fortune_handler: user={user.id} ({user_name}), text={text}, chat={chat_id}")
 
+    # 每日限制一次
+    from database import check_and_record_fortune_draw
+    if not await check_and_record_fortune_draw(user.id):
+        await msg.reply_html(f"{EMOJI_ERROR} 今天已经抽过签了，明天再来吧～")
+        return True
+
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     try:

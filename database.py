@@ -491,6 +491,12 @@ async def init_db():
                     )
                 """)
                 await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS fortune_draws (
+                        user_id BIGINT PRIMARY KEY,
+                        last_draw_date DATE NOT NULL
+                    )
+                """)
+                await cur.execute("""
                     CREATE TABLE IF NOT EXISTS chat_admins (
                         chat_id BIGINT NOT NULL,
                         user_id BIGINT NOT NULL,
@@ -727,6 +733,30 @@ async def has_chat_admin_data() -> bool:
                 return row and row[0] > 0
     except Exception:
         return False
+
+
+# ── 抽签每日限制 ──
+
+async def check_and_record_fortune_draw(user_id: int) -> bool:
+    """检查用户今天是否已抽签，未抽则记录。返回 True=允许, False=已抽过."""
+    today = datetime.date.today()
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT last_draw_date FROM fortune_draws WHERE user_id = %s",
+                    (user_id,))
+                row = await cur.fetchone()
+                if row and row[0] == today:
+                    return False  # 今天已抽
+                await cur.execute(
+                    "INSERT INTO fortune_draws (user_id, last_draw_date) VALUES (%s, %s) "
+                    "ON DUPLICATE KEY UPDATE last_draw_date = VALUES(last_draw_date)",
+                    (user_id, today))
+                return True
+    except Exception as e:
+        logger.error(f"check_and_record_fortune_draw err: {e}")
+        return True  # 异常放行，避免阻塞
 
 async def get_verify_settings(chat_id: int) -> dict:
     try:
