@@ -4,6 +4,7 @@ import random
 import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember, ChatPermissions
 from telegram.ext import ContextTypes
+from database import add_to_cluster_blacklist
 
 logger = logging.getLogger(__name__)
 logger.info("anti_bot module loaded")
@@ -242,20 +243,9 @@ async def _finish_test(context, chat_id, msg_id):
     # 构建封禁按钮
     kb = []
     if suspects:
-        kb.append([InlineKeyboardButton(
-            f"🚫 一键封禁全部 ({len(suspects)}人)",
-            callback_data=f"atb_banall_{chat_id}"
-        )])
-        row = []
-        for i, (uid, name, _) in enumerate(suspects):
-            row.append(InlineKeyboardButton(
-                f"封禁 {name[:6]}", callback_data=f"atb_banone_{chat_id}_{uid}"
-            ))
-            if len(row) == 3:
-                kb.append(row)
-                row = []
-        if row:
-            kb.append(row)
+        _pending_bans[chat_id] = [(uid, name) for uid, name, _ in suspects]
+        _blacklist_candidates[chat_id] = [(uid, name) for uid, name, _ in suspects]
+        kb = _build_ban_keyboard(chat_id, _pending_bans[chat_id], _blacklist_candidates[chat_id])
 
     reply_markup = InlineKeyboardMarkup(kb) if kb else None
 
@@ -269,11 +259,39 @@ async def _finish_test(context, chat_id, msg_id):
     except Exception as e:
         logger.error(f"finish_test edit failed: {e}")
 
-    if suspects:
-        _pending_bans[chat_id] = [(uid, name) for uid, name, _ in suspects]
-
 
 _pending_bans = {}
+_blacklist_candidates = {}
+
+
+def _build_ban_keyboard(chat_id, pending, candidates):
+    """构建测挂结果按钮: 封禁按钮 + 加入集群黑名单按钮。
+
+    pending: [(uid, name), ...] 待封禁; candidates: [(uid, name), ...] 黑名单候选。
+    """
+    kb = []
+    if pending:
+        kb.append([InlineKeyboardButton(
+            f"🚫 一键封禁全部 ({len(pending)}人)",
+            callback_data=f"atb_banall_{chat_id}"
+        )])
+        row = []
+        for uid, name in pending:
+            row.append(InlineKeyboardButton(
+                f"封禁 {name[:6]}", callback_data=f"atb_banone_{chat_id}_{uid}"
+            ))
+            if len(row) == 3:
+                kb.append(row)
+                row = []
+        if row:
+            kb.append(row)
+    if candidates:
+        kb.append([InlineKeyboardButton(
+            f"加入集群黑名单 ({len(candidates)}人)",
+            callback_data=f"atb_blacklist_{chat_id}",
+            icon_custom_emoji_id="5397994032385239776"
+        )])
+    return kb
 
 
 async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -296,6 +314,7 @@ async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if data.startswith("atb_banall_"):
+        # 只封禁, 保留 _pending_bans/_blacklist_candidates, 让"加入集群黑名单"按钮仍可点
         suspects = _pending_bans.get(chat_id, [])
         banned = 0
         for uid, name in suspects:
@@ -304,7 +323,6 @@ async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 banned += 1
             except Exception:
                 pass
-        _pending_bans.pop(chat_id, None)
         await query.answer(f"已封禁 {banned}/{len(suspects)} 人", show_alert=True)
 
     elif data.startswith("atb_banone_"):
@@ -321,24 +339,18 @@ async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception as e:
             await query.answer(f"封禁失败: {e}", show_alert=True)
 
+    elif data.startswith("atb_blacklist_"):
+        candidates = _blacklist_candidates.get(chat_id, [])
+        added = 0
+        for uid, name in candidates:
+            if await add_to_cluster_blacklist(uid, name, reason="anti_bot"):
+                added += 1
+        _pending_bans.pop(chat_id, None)
+        _blacklist_candidates.pop(chat_id, None)
+        await query.answer(f"已加入集群黑名单 {added}/{len(candidates)} 人", show_alert=True)
+
     # 更新按钮
-    suspects = _pending_bans.get(chat_id, [])
-    kb = []
-    if suspects:
-        kb.append([InlineKeyboardButton(
-            f"🚫 一键封禁全部 ({len(suspects)}人)",
-            callback_data=f"atb_banall_{chat_id}"
-        )])
-        row = []
-        for i, (uid, name) in enumerate(suspects):
-            row.append(InlineKeyboardButton(
-                f"封禁 {name[:6]}", callback_data=f"atb_banone_{chat_id}_{uid}"
-            ))
-            if len(row) == 3:
-                kb.append(row)
-                row = []
-        if row:
-            kb.append(row)
+    kb = _build_ban_keyboard(chat_id, _pending_bans.get(chat_id, []), _blacklist_candidates.get(chat_id, []))
     try:
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(kb) if kb else None)
     except Exception:

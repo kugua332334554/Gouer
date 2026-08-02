@@ -45,9 +45,18 @@ async def checkin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tz_offset = await get_group_owner_timezone_offset(context, chat_id)
     result = await process_checkin(chat_id, user_id, tz_offset)
     if result.get("already_checked_in"):
-        await update.message.reply_html(
+        fail_msg = await update.message.reply_html(
             f'<tg-emoji emoji-id="5767151002666929821">🚫</tg-emoji>{name}，您今天已经签到过啦～'
         )
+        # 与签到成功一样, 按 delete_time 设置自动删除(含用户消息和失败提示)
+        delete_time = settings.get("delete_time", 0)
+        if delete_time > 0:
+            asyncio.create_task(delete_messages_delayed(
+                context.bot,
+                chat_id,
+                [update.message.message_id, fail_msg.message_id],
+                delete_time
+            ))
         return
     gained = result["gained"]
     streak = result["streak"]

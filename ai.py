@@ -592,7 +592,10 @@ async def fortune_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 每日限制一次
     from database import check_and_record_fortune_draw
     if not await check_and_record_fortune_draw(user.id):
-        await msg.reply_html(f"{EMOJI_ERROR} 今天已经抽过签了，明天再来吧～")
+        limit_msg = await msg.reply_html(f"{EMOJI_ERROR} 今天已经抽过签了，明天再来吧～")
+        # 自动删除: 用户的抽签指令 + 限次提示, 避免刷屏
+        asyncio.create_task(_del_msg(context.bot, chat_id, msg.message_id, 10))
+        asyncio.create_task(_del_msg(context.bot, chat_id, limit_msg.message_id, 10))
         return True
 
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")

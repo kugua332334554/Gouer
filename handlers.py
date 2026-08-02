@@ -70,7 +70,8 @@ def get_verification_text(state: dict) -> str:
         f'<tg-emoji emoji-id="5879585266426973039">🌐</tg-emoji> <b>状态:</b> {status_text}\n'
         f'<tg-emoji emoji-id="5879895758202735862">🔒</tg-emoji> <b>模式:</b> {mode_text}\n'
         f'<b>验证时间:</b> {state["duration"]} 分钟\n'
-        f'<b>超时惩罚:</b> {penalty_text}'
+        f'<b>超时惩罚:</b> {penalty_text}\n'
+        f'<tg-emoji emoji-id="5120863672792515559">🧧</tg-emoji> <b>禁止红包挂进入:</b> {"开启" if state.get("block_blacklist") else "关闭"}'
     )
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -378,12 +379,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             current_state["duration"] = int(setting_value)
         elif setting_type == "pen":
             current_state["penalty"] = setting_value
+        elif setting_type == "black":
+            current_state["block_blacklist"] = True if setting_value == "1" else False
         await update_verify_settings(
             chat_id,
             current_state["status"],
             current_state["mode"],
             current_state["duration"],
-            current_state["penalty"]
+            current_state["penalty"],
+            current_state.get("block_blacklist", False)
         )
         await query.answer("设置已更新！")
         text = get_verification_text(current_state)

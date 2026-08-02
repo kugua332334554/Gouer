@@ -127,6 +127,23 @@ async def post_init(application):
     asyncio.create_task(_recover_pending_payments(application))
     # 首次启动：迁移已有群的管理员到 chat_admins 表
     asyncio.create_task(_migrate_chat_admins(application))
+    # 每日清理过期数据(群/频道操作日志 + 未完成支付订单, 防表膨胀)
+    asyncio.create_task(_run_daily_cleanup())
+
+
+async def _run_daily_cleanup():
+    """每日清理过期数据: 群/频道操作日志 + 未完成支付订单, 防止表无限膨胀。"""
+    from database import cleanup_old_action_logs, cleanup_payment_orders
+    while True:
+        try:
+            await cleanup_old_action_logs(days=30)
+        except Exception as e:
+            logger.error(f"action log cleanup err: {e}", exc_info=True)
+        try:
+            await cleanup_payment_orders(days=30)
+        except Exception as e:
+            logger.error(f"payment order cleanup err: {e}", exc_info=True)
+        await asyncio.sleep(24 * 3600)
 
 
 async def _migrate_chat_admins(application):
@@ -175,7 +192,7 @@ async def _auto_start_clones():
             if not token:
                 logger.error(f"Empty token for bot id={token_id}, skipping")
                 continue
-            env = {**_os.environ, "BOT_TOKEN": token, "DB": db_name, "BOT_IS_CHILD": "1"}
+            env = {**_os.environ, "BOT_TOKEN": token, "DB": db_name, "BOT_IS_CHILD": "1", "COMMON_DB": _os.environ.get("DB", config.DB)}
             p = subprocess.Popen(
                 [sys.executable, main_py],
                 env=env,
@@ -292,7 +309,7 @@ def main():
     app.add_handler(CallbackQueryHandler(choujiang.choujiang_callback_handler, pattern="^(group_choujiang_|cj_)"))
     app.add_handler(CallbackQueryHandler(kuaisufabu.kuaisufabu_callback_handler, pattern="^(kf_|post_fast$)"))
     app.add_handler(CallbackQueryHandler(anti_bot.anti_bot_callback_handler, pattern="^atb_answer_"))
-    app.add_handler(CallbackQueryHandler(anti_bot.anti_bot_ban_handler, pattern="^atb_ban"))
+    app.add_handler(CallbackQueryHandler(anti_bot.anti_bot_ban_handler, pattern="^atb_(ban|blacklist)"))
     app.add_handler(CallbackQueryHandler(autobutton.autobutton_callback_handler, pattern="^ab_"))
     app.add_handler(CallbackQueryHandler(permission.permission_callback_handler, pattern="^perm_"))
     app.add_handler(CallbackQueryHandler(autodelete.autodelete_callback_handler, pattern="^ad_"))

@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw
 from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, ChatJoinRequest
 from telegram.ext import ContextTypes
 import config
-from database import get_verify_settings
+from database import get_verify_settings, is_cluster_blacklisted
 from welcome import send_welcome_message
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,14 @@ async def chat_join_request_handler(update: Update, context: ContextTypes.DEFAUL
     shield = f'<tg-emoji emoji-id="{SHIELD_EMOJI_ID}">🛡</tg-emoji>'
 
     settings = await get_verify_settings(chat.id)
+    # 禁止红包挂进入: 集群黑名单用户直接拒绝
+    if settings and settings.get("block_blacklist"):
+        if await is_cluster_blacklisted(user.id):
+            try:
+                await join_req.decline()
+            except Exception:
+                pass
+            return
     if not settings or not settings.get("status"):
         # no verification → approve immediately
         try:
@@ -510,7 +518,17 @@ async def perform_verification(context: ContextTypes.DEFAULT_TYPE, chat, user):
     shield = f'<tg-emoji emoji-id="{SHIELD_EMOJI_ID}">🛡</tg-emoji>'
 
     settings = await get_verify_settings(chat.id)
-    if not settings or not settings.get("status"):
+    if not settings:
+        await send_welcome_message(context, chat, user)
+        return
+    # 禁止红包挂进入: 集群黑名单用户直接踢出
+    if settings.get("block_blacklist") and await is_cluster_blacklisted(user.id):
+        try:
+            await context.bot.ban_chat_member(chat_id=chat.id, user_id=user.id)
+        except Exception as e:
+            logger.error(f"blacklist ban fail for {user.id} in {chat.id}: {e}")
+        return
+    if not settings.get("status"):
         await send_welcome_message(context, chat, user)
         return
 

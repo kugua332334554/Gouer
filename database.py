@@ -68,7 +68,8 @@ async def init_db():
                         verify_status BOOLEAN DEFAULT FALSE,
                         verify_mode VARCHAR(50) DEFAULT 'button',
                         verify_duration INT DEFAULT 1,
-                        verify_penalty VARCHAR(50) DEFAULT 'mute'
+                        verify_penalty VARCHAR(50) DEFAULT 'mute',
+                        block_blacklist_join BOOLEAN DEFAULT FALSE
                     )
                 """)
                 await cur.execute("""
@@ -105,6 +106,18 @@ async def init_db():
                     await cur.execute("ALTER TABLE group_points_settings ADD COLUMN delete_time INT DEFAULT 0")
                 except Exception:
                     pass
+                try:
+                    await cur.execute("ALTER TABLE group_settings ADD COLUMN block_blacklist_join BOOLEAN DEFAULT FALSE")
+                except Exception:
+                    pass
+                await cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS {_common_table('cluster_blacklist')} (
+                        user_id BIGINT PRIMARY KEY,
+                        username VARCHAR(255) DEFAULT '',
+                        reason VARCHAR(255) DEFAULT '',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS user_points (
                         chat_id BIGINT,
@@ -509,8 +522,8 @@ async def init_db():
                     )
                 """)
                 try:
-                    await cur.execute("""
-                        CREATE TABLE IF NOT EXISTS stickers (
+                    await cur.execute(f"""
+                        CREATE TABLE IF NOT EXISTS {_common_table('stickers')} (
                             file_id VARCHAR(255) PRIMARY KEY,
                             emoji VARCHAR(10),
                             added_by BIGINT,
@@ -762,27 +775,80 @@ async def check_and_record_fortune_draw(user_id: int) -> bool:
         logger.error(f"check_and_record_fortune_draw err: {e}")
         return True  # 异常放行，避免阻塞
 
+# ── 公用数据库 (common DB) ────────────────────────────────────────────
+# 主 Bot 与克隆子 Bot 共享一个公用数据库(主库), 共同记录贴纸库(stickers)
+# 与外挂黑名单(cluster_blacklist)。子 Bot 通过环境变量 COMMON_DB 拿到主库名。
+def _common_table(table: str) -> str:
+    """返回公用数据库中共享表的可执行表名。
+
+    与自身 config.DB 不同时(子 Bot)用全限定表名 `{COMMON_DB}`.{table} 跨库读写;
+    主 Bot(COMMON_DB==config.DB)直接读本地表。同一 MySQL 实例内跨库访问可用。
+    """
+    common_db = os.getenv("COMMON_DB") or config.DB
+    if common_db and common_db != config.DB:
+        _validate_table_name(common_db)
+        return f"`{common_db}`.{table}"
+    return table
+
+
+async def add_to_cluster_blacklist(user_id: int, username: str = "", reason: str = "") -> bool:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"""
+                    INSERT INTO {_common_table("cluster_blacklist")} (user_id, username, reason)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE username=VALUES(username), reason=VALUES(reason)
+                """, (user_id, username, reason))
+        return True
+    except Exception as e:
+        logger.error(f"add_to_cluster_blacklist err: {e}", exc_info=True)
+        return False
+
+
+async def is_cluster_blacklisted(user_id: int) -> bool:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"SELECT 1 FROM {_common_table('cluster_blacklist')} WHERE user_id = %s LIMIT 1", (user_id,))
+                return cur.rowcount > 0
+    except Exception as e:
+        logger.error(f"is_cluster_blacklisted err: {e}", exc_info=True)
+        return False
+
+
+async def remove_from_cluster_blacklist(user_id: int) -> bool:
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(f"DELETE FROM {_common_table('cluster_blacklist')} WHERE user_id = %s", (user_id,))
+        return True
+    except Exception as e:
+        logger.error(f"remove_from_cluster_blacklist err: {e}", exc_info=True)
+        return False
+
+
 async def get_verify_settings(chat_id: int) -> dict:
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT verify_status, verify_mode, verify_duration, verify_penalty FROM group_settings WHERE chat_id = %s", (chat_id,))
+                await cur.execute("SELECT verify_status, verify_mode, verify_duration, verify_penalty, block_blacklist_join FROM group_settings WHERE chat_id = %s", (chat_id,))
                 result = await cur.fetchone()
                 if result:
-                    return {"status": bool(result[0]), "mode": result[1], "duration": result[2], "penalty": result[3]}
+                    return {"status": bool(result[0]), "mode": result[1], "duration": result[2], "penalty": result[3], "block_blacklist": bool(result[4])}
     except Exception as e:
         logger.error(f"get_verify_settings err: {e}", exc_info=True)
-    return {"status": False, "mode": "button", "duration": 1, "penalty": "mute"}
+    return {"status": False, "mode": "button", "duration": 1, "penalty": "mute", "block_blacklist": False}
 
-async def update_verify_settings(chat_id: int, status: bool, mode: str, duration: int, penalty: str):
+async def update_verify_settings(chat_id: int, status: bool, mode: str, duration: int, penalty: str, block_blacklist: bool = False):
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
-                    INSERT INTO group_settings (chat_id, verify_status, verify_mode, verify_duration, verify_penalty)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE verify_status=VALUES(verify_status), verify_mode=VALUES(verify_mode), verify_duration=VALUES(verify_duration), verify_penalty=VALUES(verify_penalty)
-                """, (chat_id, status, mode, duration, penalty))
+                    INSERT INTO group_settings (chat_id, verify_status, verify_mode, verify_duration, verify_penalty, block_blacklist_join)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE verify_status=VALUES(verify_status), verify_mode=VALUES(verify_mode), verify_duration=VALUES(verify_duration), verify_penalty=VALUES(verify_penalty), block_blacklist_join=VALUES(block_blacklist_join)
+                """, (chat_id, status, mode, duration, penalty, block_blacklist))
     except Exception as e:
         logger.error(f"update_verify_settings err: {e}", exc_info=True)
 
@@ -1036,6 +1102,55 @@ async def log_group_action(chat_id: int, user_id: int, action: str):
         logger.error(f"log_group_action err: {e}")
 
 
+async def cleanup_old_action_logs(days: int = 30) -> int:
+    """清理超过 days 天的群/频道操作日志(动态表 qunzu_% / pindao_%)。
+
+    这些日志表只增不删, 长期运行会无限膨胀, 由每日定时任务删除旧数据。
+    返回删除的总行数。
+    """
+    deleted_total = 0
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("""
+                    SELECT table_name FROM information_schema.tables
+                    WHERE table_schema = DATABASE()
+                      AND (table_name LIKE 'qunzu\\_%' OR table_name LIKE 'pindao\\_%')
+                """)
+                tables = [r[0] for r in await cur.fetchall()]
+        for t in tables:
+            try:
+                async with db_pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute(
+                            f"DELETE FROM `{_validate_table_name(t)}` WHERE created_at < NOW() - INTERVAL %s DAY",
+                            (days,))
+                        deleted_total += cur.rowcount
+            except Exception as e:
+                logger.error(f"cleanup table {t} err: {e}")
+        if tables:
+            logger.info(f"cleanup_old_action_logs: deleted {deleted_total} rows older than {days}d from {len(tables)} tables")
+    except Exception as e:
+        logger.error(f"cleanup_old_action_logs err: {e}", exc_info=True)
+    return deleted_total
+
+
+async def cleanup_payment_orders(days: int = 30) -> int:
+    """清理超过 days 天的未完成支付订单(status != 'paid'), 保留已支付记录。"""
+    deleted = 0
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "DELETE FROM payment_orders WHERE status != 'paid' AND created_at < NOW() - INTERVAL %s DAY",
+                    (days,))
+                deleted = cur.rowcount
+        logger.info(f"cleanup_payment_orders: deleted {deleted} unpaid orders older than {days}d")
+    except Exception as e:
+        logger.error(f"cleanup_payment_orders err: {e}", exc_info=True)
+    return deleted
+
+
 # ── 订阅 ──────────────────────────────────────────
 
 async def check_subscription(chat_id: int, feature: str) -> bool:
@@ -1230,12 +1345,12 @@ async def is_child_bot(bot_token: str) -> bool:
 # ── 贴纸库 ──────────────────────────────────────
 
 async def add_sticker(file_id: str, emoji: str, added_by: int):
-    """存贴纸，file_id 唯一，重复则更新 emoji"""
+    """存贴纸，file_id 唯一，重复则更新 emoji。贴纸库存公用数据库，主/子 Bot 共享。"""
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "INSERT INTO stickers (file_id, emoji, added_by) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE emoji=VALUES(emoji)",
+                    f"INSERT INTO {_common_table('stickers')} (file_id, emoji, added_by) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE emoji=VALUES(emoji)",
                     (file_id, emoji, added_by))
     except Exception as e:
         logger.error(f"add_sticker err: {e}")
@@ -1247,7 +1362,7 @@ async def get_sticker_by_emoji(emoji: str) -> str:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "SELECT file_id FROM stickers WHERE emoji=%s ORDER BY RAND() LIMIT 1",
+                    f"SELECT file_id FROM {_common_table('stickers')} WHERE emoji=%s ORDER BY RAND() LIMIT 1",
                     (emoji,))
                 row = await cur.fetchone()
                 return row[0] if row else ""
@@ -1261,7 +1376,7 @@ async def get_random_sticker() -> str:
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT file_id FROM stickers ORDER BY RAND() LIMIT 1")
+                await cur.execute(f"SELECT file_id FROM {_common_table('stickers')} ORDER BY RAND() LIMIT 1")
                 row = await cur.fetchone()
                 return row[0] if row else ""
     except Exception as e:
@@ -1274,7 +1389,7 @@ async def get_all_sticker_emojis() -> list:
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT DISTINCT emoji FROM stickers ORDER BY emoji")
+                await cur.execute(f"SELECT DISTINCT emoji FROM {_common_table('stickers')} ORDER BY emoji")
                 return [r[0] for r in await cur.fetchall()]
     except Exception as e:
         logger.error(f"get_all_sticker_emojis err: {e}")

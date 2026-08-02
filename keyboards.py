@@ -191,6 +191,11 @@ def get_group_verification_keyboard(chat_id: str, current_state: dict, lang: str
             InlineKeyboardButton(_("mute_penalty", lang), callback_data=f"verify_set_pen_mute_{chat_id}", **opt_kwargs(current_state['penalty'] == 'mute')),
             InlineKeyboardButton(_("kick_penalty", lang), callback_data=f"verify_set_pen_kick_{chat_id}", **opt_kwargs(current_state['penalty'] == 'kick'))
         ],
+        [
+            InlineKeyboardButton("禁止红包挂进入", callback_data="noop", icon_custom_emoji_id="5120863672792515559"),
+            InlineKeyboardButton(_("enable_btn", lang), callback_data=f"verify_set_black_1_{chat_id}", **opt_kwargs(current_state.get('block_blacklist', False))),
+            InlineKeyboardButton(_("disable_btn", lang), callback_data=f"verify_set_black_0_{chat_id}", **opt_kwargs(not current_state.get('block_blacklist', False)))
+        ],
         [InlineKeyboardButton("« " + _("back_group_manage", lang), callback_data=f"manage_group_{chat_id}")]
     ]
     return InlineKeyboardMarkup(keyboard)
