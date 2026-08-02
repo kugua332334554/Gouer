@@ -295,7 +295,7 @@ async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception:
         return
 
-    if data.startswith("ab_banall_"):
+    if data.startswith("atb_banall_"):
         suspects = _pending_bans.get(chat_id, [])
         banned = 0
         for uid, name in suspects:
@@ -307,7 +307,7 @@ async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         _pending_bans.pop(chat_id, None)
         await query.answer(f"已封禁 {banned}/{len(suspects)} 人", show_alert=True)
 
-    elif data.startswith("ab_banone_"):
+    elif data.startswith("atb_banone_"):
         uid = int(parts[3])
         try:
             await context.bot.ban_chat_member(chat_id, uid)

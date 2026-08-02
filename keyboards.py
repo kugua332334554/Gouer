@@ -34,6 +34,9 @@ def get_start_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
         keyboard.append([
             InlineKeyboardButton(_("help_channel_btn", lang), url=config.LINK if config.LINK else "https://t.me", style="primary", icon_custom_emoji_id="5771695636411847302")
         ])
+    keyboard.append([                                                                                                                                                                    
+        InlineKeyboardButton(" 金博娱乐 · 真正懂玩家的平台", url="https://t.me/JB7777_bot?start=496953", icon_custom_emoji_id="6093793027988393802", style="danger")                  
+    ]) 
     return InlineKeyboardMarkup(keyboard)
 
 def get_timezone_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:

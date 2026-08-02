@@ -2,7 +2,10 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta
-from telegram import Update, ChatMember, Chat, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
+
+import httpx
+
+from telegram import Update, ChatMember, Chat, ChatPermissions, User, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import config
 from database import (
@@ -712,6 +715,27 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_html(f"{EMOJI_ERROR} 解除禁言失败: {e}")
 
+async def _lookup_user_id_via_9191(username: str) -> int | None:
+    """通过内网 9191 服务 (Telethon) 解析 username → 用户 ID。
+
+    本地查不到用户时兜底：请求 http://127.0.0.1:9191/?username=@xxx，
+    成功返回 user_id，失败返回 None。
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "http://127.0.0.1:9191/",
+                params={"username": username},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                uid = data.get("user_id")
+                return int(uid) if uid is not None else None
+            logger.warning(f"9191 lookup failed for {username}: HTTP {resp.status_code} {resp.text[:200]}")
+    except Exception as e:
+        logger.warning(f"9191 lookup error for {username}: {e}")
+    return None
+
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat.type in ['group', 'supergroup']:
         return
@@ -719,6 +743,12 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_html(f"{EMOJI_WARN} 只有管理员才能使用此命令。")
         return
     target = await _get_target_user(update, context)
+    if not target and context.args and context.args[0].startswith('@'):
+        # 本地解析不到 → 请求内网 9191 服务按 username 查 user_id
+        user_id = await _lookup_user_id_via_9191(context.args[0])
+        if user_id:
+            username = context.args[0].lstrip('@')
+            target = User(id=user_id, first_name=username, is_bot=False)
     if not target:
         await update.message.reply_html(f"{EMOJI_WARN} 找不到该用户。请回复他的消息、@他（需在群里发过言），或直接发用户ID。")
         return
