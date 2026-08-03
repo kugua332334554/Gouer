@@ -12,6 +12,8 @@ from telegram.ext import (
 )
 from telegram import Update, ChatPermissions
 import config
+# RichText 富文本消息兼容层: 把 message.rich_message 的纯文本注入 message.text
+import rich_text
 from database import init_db
 import database
 from handlers import (
@@ -143,6 +145,11 @@ async def _run_daily_cleanup():
             await cleanup_payment_orders(days=30)
         except Exception as e:
             logger.error(f"payment order cleanup err: {e}", exc_info=True)
+        # 清理刷屏追踪的内存条目, 防止 _flood_tracker 无限膨胀
+        try:
+            antispam.cleanup_flood_tracker()
+        except Exception as e:
+            logger.error(f"flood tracker cleanup err: {e}", exc_info=True)
         await asyncio.sleep(24 * 3600)
 
 

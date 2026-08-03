@@ -25,6 +25,25 @@ PENALTY_OPTIONS = {"delete": "仅删除", "mute": "禁言", "kick": "踢出", "b
 _flood_tracker = defaultdict(lambda: defaultdict(list))
 _AWAIT_ANTISPAM = {}
 
+
+def cleanup_flood_tracker():
+    """清理刷屏追踪里过期/空的条目, 防止 _flood_tracker 内存无限增长。
+
+    每次刷屏检测只清理"当前用户"的过期记录; 一次性用户留下的空键
+    需要周期调用本函数统一清掉, 让 tracker 只保留最近一段时间的活跃记录。
+    """
+    now = time.monotonic()
+    for chat_id in list(_flood_tracker.keys()):
+        chat_trackers = _flood_tracker[chat_id]
+        for user_id in list(chat_trackers.keys()):
+            lst = chat_trackers[user_id]
+            # 兜底保留窗口: 超过 1 小时的记录直接丢弃
+            lst[:] = [(t, txt) for t, txt in lst if now - t <= 3600]
+            if not lst:
+                chat_trackers.pop(user_id, None)
+        if not chat_trackers:
+            _flood_tracker.pop(chat_id, None)
+
 LABELS = {
     "block_contact": "屏蔽联系人卡片", "block_location": "屏蔽位置信息",
     "block_channel_send": "屏蔽频道马甲", "block_channel_fwd": "屏蔽频道转发",
@@ -75,7 +94,15 @@ async def antispam_callback_handler(update: Update, context: ContextTypes.DEFAUL
     data = query.data
 
     try:
-        chat_id = int(data.split("_")[-1])
+        parts = data.split("_")
+        # chat_id 通常在末尾; as_setpen_{chat_id}_{penalty} 里 chat_id 在倒数第二
+        chat_id = None
+        for cand in (parts[-1], parts[-2]):
+            if cand.lstrip("-").isdigit():
+                chat_id = int(cand)
+                break
+        if chat_id is None:
+            return
         member = await context.bot.get_chat_member(chat_id, user_id)
         if member.status not in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
             await query.answer("⚠️ 只有管理员才能设置。", show_alert=True)
@@ -333,7 +360,8 @@ async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 10. 刷屏检测
     if s["block_flood"] and msg.text:
         now = time.monotonic()
-        tracker = _flood_tracker[chat.id][user.id]
+        chat_trackers = _flood_tracker[chat.id]
+        tracker = chat_trackers[user.id]
         text = msg.text.strip()
         tracker.append((now, text))
         # 清理超时记录
@@ -341,8 +369,13 @@ async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tracker[:] = [(t, txt) for t, txt in tracker if t > cutoff]
         # 检查相同消息计数
         same_count = sum(1 for _, txt in tracker if txt == text)
-        if same_count >= s["flood_count"]:
-            tracker.clear()
+        hit = same_count >= s["flood_count"]
+        # 命中或记录已全过期 → 删掉空条目, 防止 _flood_tracker 无限膨胀
+        if hit or not tracker:
+            chat_trackers.pop(user.id, None)
+            if not chat_trackers:
+                _flood_tracker.pop(chat.id, None)
+        if hit:
             return True, f"刷屏 ({same_count}条相同消息/{s['flood_timeout']}s)"
 
     return False, ""
