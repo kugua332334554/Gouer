@@ -107,9 +107,9 @@ async def get_choujiang_list(chat_id: int, status_filter: str = None) -> list:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 if status_filter:
-                    await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, status, message_id, created_at FROM group_choujiang WHERE chat_id = %s AND status = %s ORDER BY id DESC", (chat_id, status_filter))
+                    await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, join_chats, name_contains, bio_contains, need_photo, status, message_id, created_at FROM group_choujiang WHERE chat_id = %s AND status = %s ORDER BY id DESC", (chat_id, status_filter))
                 else:
-                    await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, status, message_id, created_at FROM group_choujiang WHERE chat_id = %s ORDER BY id DESC", (chat_id,))
+                    await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, join_chats, name_contains, bio_contains, need_photo, status, message_id, created_at FROM group_choujiang WHERE chat_id = %s ORDER BY id DESC", (chat_id,))
                 return [_row_to_dict(row) for row in await cur.fetchall()]
     except Exception as e:
         logger.error(f"get_choujiang_list err: {e}", exc_info=True)
@@ -120,7 +120,7 @@ async def get_choujiang_by_id(lottery_id: int) -> dict:
     try:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, status, message_id, created_at FROM group_choujiang WHERE id = %s", (lottery_id,))
+                await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, join_chats, name_contains, bio_contains, need_photo, status, message_id, created_at FROM group_choujiang WHERE id = %s", (lottery_id,))
                 row = await cur.fetchone()
                 return _row_to_dict(row) if row else None
     except Exception as e:
@@ -154,7 +154,9 @@ def _row_to_dict(row) -> dict:
             "draw_method": row[8], "draw_count": row[9] or 0, "draw_time": row[10],
             "report_group_id": row[11] or 0, "report_keyword": row[12] or "",
             "report_group_link": row[13] or "",
-            "status": row[14], "message_id": row[15], "created_at": row[16]}
+            "join_chats": row[14] or "", "name_contains": row[15] or "",
+            "bio_contains": row[16] or "", "need_photo": bool(row[17]),
+            "status": row[18], "message_id": row[19], "created_at": row[20]}
 
 
 async def update_choujiang(lottery_id: int, **kwargs):
@@ -208,11 +210,85 @@ async def get_entries(lottery_id: int) -> list:
         return []
 
 
+def get_join_chats(lottery: dict) -> list:
+    """解析参加条件中的入群列表（支持 @username 或数字 ID）。"""
+    raw = lottery.get("join_chats") or ""
+    if not raw:
+        return []
+    try:
+        val = json.loads(raw)
+        return [str(x).strip() for x in val if str(x).strip()] if isinstance(val, list) else []
+    except Exception:
+        return [x.strip() for x in raw.replace("\n", ",").split(",") if x.strip()]
+
+
+def get_requirements_text(lottery: dict) -> str:
+    """把参加条件渲染为给用户看的文案，空串=无条件。"""
+    lines = []
+    chats = get_join_chats(lottery)
+    if chats:
+        shown = []
+        for c in chats:
+            shown.append(f"<code>@{c.lstrip('@')}</code>" if not c.startswith("-") else f"<code>{c}</code>")
+        lines.append(f"加入频道/群组：{'、'.join(shown)}")
+    if lottery.get("name_contains"):
+        lines.append(f"名字需包含「{lottery['name_contains']}」")
+    if lottery.get("bio_contains"):
+        lines.append(f"简介需包含「{lottery['bio_contains']}」")
+    if lottery.get("need_photo"):
+        lines.append("需要设置头像")
+    return "\n".join(lines) if lines else ""
+
+
+async def check_participation_requirements(context, lottery: dict, user_id: int, user) -> list:
+    """检查用户是否满足抽奖参加条件。
+
+    返回未满足条件的描述列表，空列表表示全部满足。
+    """
+    unmet = []
+    # 1. 必须加入的频道/群组（支持多个）
+    for cid in get_join_chats(lottery):
+        target = cid if cid.startswith("-") else f"@{cid.lstrip('@')}"
+        ok = False
+        try:
+            cm = await context.bot.get_chat_member(target, user_id)
+            ok = cm.status in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER, ChatMember.CREATOR)
+        except Exception:
+            ok = False
+        if not ok:
+            display = cid if cid.startswith("-") else f"@{cid.lstrip('@')}"
+            unmet.append(f"未加入 {display}")
+    # 2. 名字必须包含指定内容
+    if lottery.get("name_contains"):
+        full_name = f"{user.first_name or ''}{user.last_name or ''}"
+        if lottery["name_contains"] not in full_name:
+            unmet.append(f"名字需包含「{lottery['name_contains']}」")
+    # 3. 简介必须包含指定内容
+    if lottery.get("bio_contains"):
+        bio = ""
+        try:
+            chat = await context.bot.get_chat(user_id)
+            bio = chat.bio or ""
+        except Exception:
+            bio = ""
+        if lottery["bio_contains"] not in bio:
+            unmet.append(f"简介需包含「{lottery['bio_contains']}」")
+    # 4. 必须有头像
+    if lottery.get("need_photo"):
+        try:
+            photos = await context.bot.get_user_profile_photos(user_id, limit=1)
+            if not photos.photos:
+                unmet.append("需要设置头像")
+        except Exception:
+            unmet.append("需要设置头像")
+    return unmet
+
+
 async def get_active_time_lotteries() -> list:
     try:
         async with database.db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, status, message_id, created_at FROM group_choujiang WHERE status = 'active' AND draw_method = 'time' AND draw_time IS NOT NULL")
+                await cur.execute("SELECT id, chat_id, creator_id, type, title, prize_description, winner_count, entry_cost, draw_method, draw_count, draw_time, report_group_id, report_keyword, report_group_link, join_chats, name_contains, bio_contains, need_photo, status, message_id, created_at FROM group_choujiang WHERE status = 'active' AND draw_method = 'time' AND draw_time IS NOT NULL")
                 return [_row_to_dict(row) for row in await cur.fetchall()]
     except Exception as e:
         logger.error(f"get_active_time_lotteries err: {e}", exc_info=True)
@@ -273,6 +349,9 @@ def get_lottery_text(lottery: dict, entry_count: int, chat_title: str = "") -> s
     )
     if lottery["entry_cost"] > 0:
         text += f'参与费用：{lottery["entry_cost"]} 积分\n'
+    req_text = get_requirements_text(lottery)
+    if req_text:
+        text += f'\n<tg-emoji emoji-id="{WARN_EMOJI_ID}">⚠️</tg-emoji> <b>参与条件：</b>\n{req_text}\n'
     if lottery["type"] == "report" and lottery.get("report_group_id"):
         link = lottery.get("report_group_link", "")
         link_text = f'\n<tg-emoji emoji-id="5203948303305158848">🔗</tg-emoji> <a href="{link}">点击加入报道群</a>' if link else ""
@@ -314,8 +393,49 @@ def get_confirm_keyboard(chat_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("添加奖品", callback_data=f"cj_addprize_{chat_id}", icon_custom_emoji_id=ADD2_EMOJI_ID)],
         [InlineKeyboardButton("删除最后奖品", callback_data=f"cj_delprize_{chat_id}", icon_custom_emoji_id=DELETE_EMOJI_ID)],
+        [InlineKeyboardButton("设置参加条件", callback_data=f"cj_reqs_{chat_id}", icon_custom_emoji_id=WARN_EMOJI_ID)],
         [InlineKeyboardButton("确认创建", callback_data=f"cj_docreate_{chat_id}", icon_custom_emoji_id=CHECK_EMOJI_ID),
          InlineKeyboardButton("取消", callback_data=f"group_choujiang_{chat_id}")]
+    ])
+
+
+def _reqs_state(state: dict) -> dict:
+    """从创建 state 里解析参加条件展示数据。"""
+    return {
+        "join_chats": state.get("req_join_chats", "") or "",
+        "name_contains": state.get("req_name", "") or "",
+        "bio_contains": state.get("req_bio", "") or "",
+        "need_photo": bool(state.get("req_photo", False)),
+    }
+
+
+def _format_reqs_summary(state: dict) -> str:
+    r = _reqs_state(state)
+    lines = []
+    if r["join_chats"]:
+        chats = [c.strip() for c in re.split(r"[\s,]+", r["join_chats"]) if c.strip()]
+        lines.append(f"加入：{'、'.join(c if c.startswith('-') else '@'+c.lstrip('@') for c in chats)}")
+    if r["name_contains"]:
+        lines.append(f"名字包含：{r['name_contains']}")
+    if r["bio_contains"]:
+        lines.append(f"简介包含：{r['bio_contains']}")
+    if r["need_photo"]:
+        lines.append("需要头像")
+    return "\n".join(lines) if lines else "无"
+
+
+def get_reqs_keyboard(chat_id: str, state: dict) -> InlineKeyboardMarkup:
+    r = _reqs_state(state)
+    on = lambda v: "✅" if v else "❌"
+    chats = [c.strip() for c in re.split(r"[\s,]+", r["join_chats"]) if c.strip()] if r["join_chats"] else []
+    join_text = f"加入频道/群组: {'、'.join(c if c.startswith('-') else '@'+c.lstrip('@') for c in chats) or '未设置'}"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(join_text, callback_data=f"cj_reqset_join_{chat_id}", icon_custom_emoji_id=ADD_EMOJI_ID)],
+        [InlineKeyboardButton(f"名字包含: {r['name_contains'] or '无'}", callback_data=f"cj_reqset_name_{chat_id}", icon_custom_emoji_id=DELETE_EMOJI_ID)],
+        [InlineKeyboardButton(f"简介包含: {r['bio_contains'] or '无'}", callback_data=f"cj_reqset_bio_{chat_id}", icon_custom_emoji_id=DELETE_EMOJI_ID)],
+        [InlineKeyboardButton(f"需要头像: {on(r['need_photo'])}", callback_data=f"cj_reqset_photo_{chat_id}", icon_custom_emoji_id=STAR_EMOJI_ID if r['need_photo'] else CROSS_EMOJI_ID)],
+        [InlineKeyboardButton("« 返回确认", callback_data=f"cj_confirm_{chat_id}", icon_custom_emoji_id=BACK_EMOJI_ID),
+         InlineKeyboardButton("完成", callback_data=f"cj_reqs_done_{chat_id}", icon_custom_emoji_id=CHECK_EMOJI_ID)]
     ])
 
 
@@ -370,6 +490,9 @@ def _format_create_summary(state: dict) -> str:
         text += f'参与积分：{state.get("cost", 0)} 分\n'
     if state["ctype"] == "report":
         text += f'报道群：{state.get("report_group_id", "")}\n报道关键词：{state.get("report_keyword", "")}\n'
+    reqs = _format_reqs_summary(state)
+    if reqs:
+        text += f'参加条件：\n{reqs}\n'
     text += f'\n奖品列表：\n{prizes_text}'
     return text
 
@@ -472,6 +595,11 @@ async def choujiang_callback_handler(update: Update, context: ContextTypes.DEFAU
         if not lottery or lottery["status"] != "active":
             await query.answer("该抽奖已结束或不存在", show_alert=True)
             return
+        # 参加条件检查 — 对所有类型先检查（含 dice/report），不满足立即反馈
+        unmet = await check_participation_requirements(context, lottery, user_id, user)
+        if unmet:
+            await query.answer(f"参与失败：{'、'.join(unmet)}", show_alert=True)
+            return
         if lottery["type"] == "dice":
             target = lottery.get("draw_count", 1) or 1
             await query.answer(f"请发送骰子，投出 {target} 点！", show_alert=True)
@@ -570,6 +698,103 @@ async def choujiang_callback_handler(update: Update, context: ContextTypes.DEFAU
         await context.bot.send_message(chat_id=update.effective_chat.id, text=_format_create_summary(state), parse_mode="HTML", reply_markup=get_confirm_keyboard(str(chat_id)))
         return
 
+    # 参加条件面板
+    if data.startswith("cj_reqs_done_"):
+        state = _AWAIT_CHOUJIANG_INPUT.get(user_id, {})
+        if not state:
+            await query.answer("创建数据已过期", show_alert=True)
+            return
+        await query.answer("条件已保存")
+        await query.message.delete()
+        await context.bot.send_message(chat_id=update.effective_chat.id,
+            text=_format_create_summary(state), parse_mode="HTML",
+            reply_markup=get_confirm_keyboard(str(chat_id)))
+        return
+
+    if data.startswith("cj_reqs_"):
+        state = _AWAIT_CHOUJIANG_INPUT.get(user_id, {})
+        if not state:
+            await query.answer("创建数据已过期", show_alert=True)
+            return
+        await query.answer()
+        await query.message.delete()
+        await context.bot.send_message(chat_id=update.effective_chat.id,
+            text=f'<tg-emoji emoji-id="{WARN_EMOJI_ID}">⚠️</tg-emoji> <b>设置参加条件</b>\n\n'
+                 f'参与者必须满足以下条件才能参与抽奖：\n\n{_format_reqs_summary(state)}\n\n'
+                 f'点击下方按钮设置各项条件：',
+            parse_mode="HTML", reply_markup=get_reqs_keyboard(str(chat_id), state))
+        return
+
+    if data.startswith("cj_reqset_join_"):
+        state = _AWAIT_CHOUJIANG_INPUT.get(user_id, {})
+        if not state:
+            await query.answer("创建数据已过期", show_alert=True)
+            return
+        _AWAIT_CHOUJIANG_INPUT[user_id]["type"] = "create_req_join"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"cj_reqs_{chat_id}")]])
+        await query.answer()
+        await query.message.delete()
+        cur_join = state.get("req_join_chats", "")
+        await context.bot.send_message(chat_id=update.effective_chat.id,
+            text="请发送需要加入的频道/群组 @用户名 或 数字ID（多个用空格/逗号分隔）：\n\n"
+                 f"当前：{cur_join or '未设置'}",
+            reply_markup=kb)
+        return
+
+    if data.startswith("cj_reqset_name_"):
+        state = _AWAIT_CHOUJIANG_INPUT.get(user_id, {})
+        if not state:
+            await query.answer("创建数据已过期", show_alert=True)
+            return
+        _AWAIT_CHOUJIANG_INPUT[user_id]["type"] = "create_req_name"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"cj_reqs_{chat_id}")]])
+        await query.answer()
+        await query.message.delete()
+        await context.bot.send_message(chat_id=update.effective_chat.id,
+            text="请发送名字必须包含的文本（例如：小明）：", reply_markup=kb)
+        return
+
+    if data.startswith("cj_reqset_bio_"):
+        state = _AWAIT_CHOUJIANG_INPUT.get(user_id, {})
+        if not state:
+            await query.answer("创建数据已过期", show_alert=True)
+            return
+        _AWAIT_CHOUJIANG_INPUT[user_id]["type"] = "create_req_bio"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"cj_reqs_{chat_id}")]])
+        await query.answer()
+        await query.message.delete()
+        await context.bot.send_message(chat_id=update.effective_chat.id,
+            text="请发送简介必须包含的文本（例如：广告）：", reply_markup=kb)
+        return
+
+    if data.startswith("cj_reqset_photo_"):
+        state = _AWAIT_CHOUJIANG_INPUT.get(user_id, {})
+        if not state:
+            await query.answer("创建数据已过期", show_alert=True)
+            return
+        cur = bool(state.get("req_photo", False))
+        state["req_photo"] = not cur
+        await query.answer(f"需要头像：{'开' if not cur else '关'}")
+        await query.message.delete()
+        await context.bot.send_message(chat_id=update.effective_chat.id,
+            text=f'<tg-emoji emoji-id="{WARN_EMOJI_ID}">⚠️</tg-emoji> <b>设置参加条件</b>\n\n'
+                 f'参与者必须满足以下条件才能参与抽奖：\n\n{_format_reqs_summary(state)}\n\n'
+                 f'点击下方按钮设置各项条件：',
+            parse_mode="HTML", reply_markup=get_reqs_keyboard(str(chat_id), state))
+        return
+
+    if data.startswith("cj_confirm_"):
+        state = _AWAIT_CHOUJIANG_INPUT.get(user_id, {})
+        if not state:
+            await query.answer("创建数据已过期", show_alert=True)
+            return
+        await query.answer()
+        await query.message.delete()
+        await context.bot.send_message(chat_id=update.effective_chat.id,
+            text=_format_create_summary(state), parse_mode="HTML",
+            reply_markup=get_confirm_keyboard(str(chat_id)))
+        return
+
     if data.startswith("cj_docreate_"):
         state = _AWAIT_CHOUJIANG_INPUT.pop(user_id, None)
         if not state:
@@ -583,6 +808,20 @@ async def choujiang_callback_handler(update: Update, context: ContextTypes.DEFAU
                                               state.get("report_group_id", 0), state.get("report_keyword", ""),
                                               state.get("report_group_link", ""))
         if lottery_id:
+            # 写入参加条件（bot 创建流程设置的）
+            cond_updates = {}
+            if state.get("req_join_chats"):
+                chats = [c.strip() for c in re.split(r"[\s,]+", state["req_join_chats"]) if c.strip()]
+                if chats:
+                    cond_updates["join_chats"] = json.dumps(chats, ensure_ascii=False)
+            if state.get("req_name"):
+                cond_updates["name_contains"] = state["req_name"]
+            if state.get("req_bio"):
+                cond_updates["bio_contains"] = state["req_bio"]
+            if state.get("req_photo"):
+                cond_updates["need_photo"] = True
+            if cond_updates:
+                await update_choujiang(lottery_id, **cond_updates)
             lottery = await get_choujiang_by_id(lottery_id)
             try:
                 chat_info = await context.bot.get_chat(chat_id)
@@ -755,24 +994,27 @@ async def choujiang_input_handler(update: Update, context: ContextTypes.DEFAULT_
                     await cur.execute(
                         "SELECT id, chat_id, draw_count FROM group_choujiang WHERE chat_id=%s AND type='dice' AND status='active'",
                         (chat_id_now,))
-                    for row in await cur.fetchall():
-                        lid, l_chat_id, target = row
-                        if dice_val != (target or 1):
-                            continue
-                        # 已参与过？
-                        await cur.execute("SELECT 1 FROM group_choujiang_entries WHERE lottery_id=%s AND user_id=%s", (lid, user_id))
-                        if await cur.fetchone():
-                            continue
-                        await cur.execute("INSERT INTO group_choujiang_entries (lottery_id, user_id, entry_data) VALUES (%s, %s, %s)", (lid, user_id, f"dice:{dice_val}"))
-                        logger.info(f"dice lottery entry: user={user_id} lottery={lid} dice={dice_val}")
-                        # 检查是否达到开奖条件
-                        await cur.execute("SELECT COUNT(*) FROM group_choujiang_entries WHERE lottery_id=%s", (lid,))
-                        cnt = (await cur.fetchone())[0]
-                        await cur.execute("SELECT draw_count FROM group_choujiang WHERE id=%s", (lid,))
-                        lrow = await cur.fetchone()
-                        draw_cnt = lrow[0] if lrow else 0
-                        if cnt >= draw_cnt:
-                            asyncio.create_task(_auto_draw_from_db(context, lid, l_chat_id))
+                    rows = await cur.fetchall()
+            for lid, l_chat_id, target in rows:
+                if dice_val != (target or 1):
+                    continue
+                # 参加条件检查
+                lottery = await get_choujiang_by_id(lid)
+                if lottery and lottery["status"] == "active":
+                    unmet = await check_participation_requirements(context, lottery, user_id, update.effective_user)
+                    if unmet:
+                        try:
+                            await message.reply_html(f"{EMOJI_WARN} 参与失败：{'、'.join(unmet)}")
+                        except Exception:
+                            pass
+                        continue
+                added = await add_entry(lid, user_id, f"dice:{dice_val}")
+                if not added:
+                    continue
+                logger.info(f"dice lottery entry: user={user_id} lottery={lid} dice={dice_val}")
+                cnt = await get_entry_count(lid)
+                if cnt >= (target or 1):
+                    asyncio.create_task(_auto_draw_from_db(context, lid, l_chat_id))
         except Exception as e:
             logger.error(f"dice lottery check err: {e}")
 
@@ -789,25 +1031,28 @@ async def choujiang_input_handler(update: Update, context: ContextTypes.DEFAULT_
             async with db_pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute(
-                        "SELECT id, chat_id, report_keyword, draw_method, draw_count, entry_cost FROM group_choujiang WHERE report_group_id=%s AND report_keyword=%s AND status='active'",
+                        "SELECT id, chat_id, report_keyword, draw_method, draw_count FROM group_choujiang WHERE report_group_id=%s AND report_keyword=%s AND status='active'",
                         (chat_id_now, raw))
                     rows = await cur.fetchall()
-                    for row in rows:
-                        lid, l_chat_id, kw, method, draw_cnt_val, cost = row
-                        # 检查是否已参与
-                        await cur.execute("SELECT 1 FROM group_choujiang_entries WHERE lottery_id=%s AND user_id=%s", (lid, user_id))
-                        if await cur.fetchone():
-                            continue  # 已经参与过了
-                        await cur.execute("INSERT INTO group_choujiang_entries (lottery_id, user_id, entry_data) VALUES (%s, %s, %s)", (lid, user_id, f"report:{chat_id_now}"))
-                        logger.info(f"report lottery entry: user={user_id} lottery={lid} keyword={kw}")
-                        # 检查是否达到开奖条件
-                        await cur.execute("SELECT COUNT(*) FROM group_choujiang_entries WHERE lottery_id=%s", (lid,))
-                        cnt = (await cur.fetchone())[0]
-                        await cur.execute("SELECT draw_count, winner_count, prize_description, title, type, draw_method, draw_time FROM group_choujiang WHERE id=%s", (lid,))
-                        lrow = await cur.fetchone()
-                        if lrow and method == "count" and cnt >= draw_cnt_val:
-                            # 触发开奖——需要在外面做，这里先标记
-                            asyncio.create_task(_auto_draw_from_db(context, lid, l_chat_id))
+            for lid, l_chat_id, kw, method, draw_cnt_val in rows:
+                # 参加条件检查
+                lottery = await get_choujiang_by_id(lid)
+                if lottery and lottery["status"] == "active":
+                    unmet = await check_participation_requirements(context, lottery, user_id, update.effective_user)
+                    if unmet:
+                        try:
+                            await message.reply_html(f"{EMOJI_WARN} 参与失败：{'、'.join(unmet)}")
+                        except Exception:
+                            pass
+                        continue
+                added = await add_entry(lid, user_id, f"report:{chat_id_now}")
+                if not added:
+                    continue  # 已经参与过了
+                logger.info(f"report lottery entry: user={user_id} lottery={lid} keyword={kw}")
+                cnt = await get_entry_count(lid)
+                if method == "count" and cnt >= draw_cnt_val:
+                    # 触发开奖
+                    asyncio.create_task(_auto_draw_from_db(context, lid, l_chat_id))
         except Exception as e:
             logger.error(f"report keyword check err: {e}")
 
@@ -931,6 +1176,23 @@ async def choujiang_input_handler(update: Update, context: ContextTypes.DEFAULT_
         await_data["cost"] = c
         await_data["type"] = "create_confirm"
         await message.reply_html(_format_create_summary(await_data), reply_markup=get_confirm_keyboard(chat_id_str))
+        return
+
+    # 参加条件文本输入（join/name/bio）
+    if atype in ("create_req_join", "create_req_name", "create_req_bio"):
+        if atype == "create_req_join":
+            await_data["req_join_chats"] = raw
+        elif atype == "create_req_name":
+            await_data["req_name"] = raw
+        else:
+            await_data["req_bio"] = raw
+        await_data["type"] = "create_reqs"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"group_choujiang_{chat_id_str}")]])
+        await message.reply_html(
+            f'<tg-emoji emoji-id="{WARN_EMOJI_ID}">⚠️</tg-emoji> <b>设置参加条件</b>\n\n'
+            f'参与者必须满足以下条件才能参与抽奖：\n\n{_format_reqs_summary(await_data)}\n\n'
+            f'点击下方按钮设置各项条件：',
+            reply_markup=get_reqs_keyboard(chat_id_str, await_data))
         return
 
     if atype == "create_prize":

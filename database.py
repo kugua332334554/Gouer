@@ -199,6 +199,10 @@ async def init_db():
                         draw_time DATETIME,
                         report_group_id BIGINT DEFAULT 0,
                         report_keyword VARCHAR(100) DEFAULT '',
+                        join_chats TEXT,
+                        name_contains VARCHAR(100) DEFAULT '',
+                        bio_contains VARCHAR(255) DEFAULT '',
+                        need_photo BOOLEAN DEFAULT FALSE,
                         status VARCHAR(20) DEFAULT 'active',
                         message_id BIGINT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -214,6 +218,22 @@ async def init_db():
                     pass
                 try:
                     await cur.execute("ALTER TABLE group_choujiang ADD COLUMN report_group_link VARCHAR(255) DEFAULT ''")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN join_chats TEXT")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN name_contains VARCHAR(100) DEFAULT ''")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN bio_contains VARCHAR(255) DEFAULT ''")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN need_photo BOOLEAN DEFAULT FALSE")
                 except Exception:
                     pass
                 await cur.execute("""
