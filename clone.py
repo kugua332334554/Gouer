@@ -234,7 +234,6 @@ async def clone_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             test_bot = Bot(token=raw)
             me = await test_bot.get_me()
             bot_username = me.username or ""
-            await test_bot.close()
             _TOKEN_CACHE[raw] = bot_username
         except Exception as e:
             err_msg = str(e)

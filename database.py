@@ -199,6 +199,10 @@ async def init_db():
                         draw_time DATETIME,
                         report_group_id BIGINT DEFAULT 0,
                         report_keyword VARCHAR(100) DEFAULT '',
+                        join_chats TEXT,
+                        name_contains VARCHAR(100) DEFAULT '',
+                        bio_contains VARCHAR(255) DEFAULT '',
+                        need_photo BOOLEAN DEFAULT FALSE,
                         status VARCHAR(20) DEFAULT 'active',
                         message_id BIGINT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -214,6 +218,22 @@ async def init_db():
                     pass
                 try:
                     await cur.execute("ALTER TABLE group_choujiang ADD COLUMN report_group_link VARCHAR(255) DEFAULT ''")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN join_chats TEXT")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN name_contains VARCHAR(100) DEFAULT ''")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN bio_contains VARCHAR(255) DEFAULT ''")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_choujiang ADD COLUMN need_photo BOOLEAN DEFAULT FALSE")
                 except Exception:
                     pass
                 await cur.execute("""
@@ -942,7 +962,6 @@ async def add_user_points(chat_id: int, user_id: int, points: int):
 async def process_checkin(chat_id: int, user_id: int, tz_offset: int = 0) -> dict:
     now_utc = datetime.datetime.utcnow()
     today_local = (now_utc + datetime.timedelta(hours=tz_offset)).date()
-    today_utc = now_utc.date()
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -954,14 +973,10 @@ async def process_checkin(chat_id: int, user_id: int, tz_offset: int = 0) -> dic
                         (chat_id, user_id))
                     row = await cur.fetchone()
                     streak = 0
-                    last_checkin_utc = None
+                    last_checkin_local = None
                     if row:
-                        last_checkin_utc = row[0]
+                        last_checkin_local = row[0]  # 直接是本地日期，无需转换
                         streak = row[1]
-                    if last_checkin_utc:
-                        last_checkin_local = (datetime.datetime.combine(last_checkin_utc, datetime.time.min) + datetime.timedelta(hours=tz_offset)).date()
-                    else:
-                        last_checkin_local = None
                     if last_checkin_local == today_local:
                         await cur.execute("COMMIT")
                         return {"already_checked_in": True}
@@ -974,7 +989,7 @@ async def process_checkin(chat_id: int, user_id: int, tz_offset: int = 0) -> dic
                         INSERT INTO user_checkin (chat_id, user_id, last_checkin, streak)
                         VALUES (%s, %s, %s, %s)
                         ON DUPLICATE KEY UPDATE last_checkin=VALUES(last_checkin), streak=VALUES(streak)
-                    """, (chat_id, user_id, today_utc, streak))
+                    """, (chat_id, user_id, today_local, streak))
                     await cur.execute("""
                         INSERT INTO user_points (chat_id, user_id, points)
                         VALUES (%s, %s, %s)

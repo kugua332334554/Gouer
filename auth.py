@@ -683,7 +683,7 @@ async def chat_member_update_handler(update: Update, context: ContextTypes.DEFAU
     except Exception:
         pass
 
-    if old_status in ["left", "banned", "restricted"] and new_status in ["member", "administrator"]:
+    if old_status in ["left", "banned"] and new_status in ["member", "administrator"]:
         logger.info(f"Detected join/unban via chat_member for {user.id} in {chat.id}")
         if getattr(chat, "join_by_request", False):
             await send_welcome_message(context, chat, user)
