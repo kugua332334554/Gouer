@@ -273,8 +273,8 @@ async def antispam_input_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 # ── 消息拦截 ──────────────────────────────────────
 
-_URL_RE = re.compile(r"https?://\S+", re.I)
-_LONG_URL_RE = re.compile(r"https?://\S{50,}", re.I)
+_URL_RE = re.compile(r"(?:https?://|www\.|t\.me/)\S+", re.I)
+_LONG_URL_RE = re.compile(r"(?:https?://|www\.|t\.me/)\S{50,}", re.I)
 
 
 async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -343,17 +343,28 @@ async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE):
         content = msg.text or msg.caption or ""
         if _URL_RE.search(content):
             return True, "链接"
-        # 内嵌 text_link（URL 藏在 entity 里，文本不可见）
-        for ent in (msg.entities or []) + (msg.caption_entities or []):
-            if ent.type == "text_link" and ent.url and _URL_RE.search(ent.url):
-                return True, "链接"
+        # Markdown 隐藏链裸文本： [锚文本](URL) 或 (URL)
+        if re.search(r"\]\s*\(\s*\S+://\S+", content) or re.search(r"\(\s*(?:https?://|www\.|t\.me/)\S+", content):
+            return True, "链接"
+        # 内嵌 entity：text_link（锚文本隐藏URL）/ url（文本即URL）都查
+        ents = list(msg.entities or []) + list(msg.caption_entities or [])
+        logger.info(f"antispam: block_links ents={[(e.type, getattr(e, 'url', None)) for e in ents]}")
+        for ent in ents:
+            if getattr(ent, "url", None):
+                if _URL_RE.search(ent.url):
+                    return True, "链接"
+            elif ent.type == "url":
+                # url 实体无 .url，网址在文本切片里
+                link = content[ent.offset:ent.offset + ent.length]
+                if _URL_RE.search(link):
+                    return True, "链接"
 
     # 9. 超长链接 — 同样检查 text / caption / 内嵌 entity
     if s["block_long_links"]:
         content = msg.text or msg.caption or ""
         if _LONG_URL_RE.search(content):
             return True, "超长链接"
-        for ent in (msg.entities or []) + (msg.caption_entities or []):
+        for ent in list(msg.entities or []) + list(msg.caption_entities or []):
             if ent.type == "text_link" and ent.url and _LONG_URL_RE.search(ent.url):
                 return True, "超长链接"
 

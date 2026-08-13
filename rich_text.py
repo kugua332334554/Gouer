@@ -9,6 +9,7 @@
 # 先把富文本里的纯文本提取出来塞进 data["text"], 再交给 PTB 正常解析,
 # 这样 update.message.text 就被填充了, 现有文本检查零改动生效。
 import logging
+import re
 
 from telegram import Message
 
@@ -60,6 +61,30 @@ def _find_location(node):
     return None
 
 
+_URL_HINT_RE = re.compile(r"://|(?:^|\s)(?:www\.|t\.me/)", re.I)
+
+
+def _rich_links(node, out):
+    """递归收集 rich_message 里嵌入的链接 URL（容错式）。
+
+    富文本链接字段名无固定 schema，凡字符串里含 :// 或 www./t.me/ 的
+    都视为链接，交给反垃圾 block_links 检测，避免锚文本隐藏的 URL 漏网。
+    """
+    if isinstance(node, list):
+        for x in node:
+            _rich_links(x, out)
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            # 收链接时全树扫，不跳过 entities/link_preview_options —— URL 最可能藏在那
+            if isinstance(value, str):
+                # 去噪：跳过可见纯文本里没有链接特征的值，只收真正的 URL
+                for m in re.finditer(r"\S*(?:://\S+|www\.\S+|t\.me/\S*)", value):
+                    out.add(m.group(0))
+            else:
+                _rich_links(value, out)
+    return out
+
+
 _orig_de_json = Message.de_json
 _logged_rich = False
 
@@ -73,6 +98,10 @@ def _patched_de_json(cls, data, bot):
         # 注入纯文本: 让反垃圾/违禁词/关键词回复等基于 message.text 的检查生效
         if not data.get("text"):
             data["text"] = _rich_plain_text(rich)
+        # 注入链接: 富文本里锚文本隐藏/内嵌的 URL 追加到 text, 让反垃圾 block_links 扫到
+        links = _rich_links(rich, set())
+        if links:
+            data["text"] = (data.get("text") or "") + " " + " ".join(sorted(links))
         # 注入位置: RichBlockMap 的坐标 -> message.location, 让反垃圾 block_location 拦截生效
         loc = _find_location(rich)
         if loc and not data.get("location"):

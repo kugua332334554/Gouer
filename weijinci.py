@@ -328,12 +328,6 @@ async def weijinci_check_handler(update: Update, context: ContextTypes.DEFAULT_T
         user_id = update.effective_user.id
         if update.effective_user.is_bot:
             return False
-        try:
-            member = await context.bot.get_chat_member(chat_id, user_id)
-            if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
-                return False
-        except Exception:
-            pass
         words = await get_active_weijinci(chat_id)
         if not words:
             return False
