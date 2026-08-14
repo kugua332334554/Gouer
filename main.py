@@ -49,6 +49,7 @@ import speak_check
 import toggle_group
 import anti_bot
 import antispam
+import media_autodelete
 import keyword_reply
 import shop
 import nsfw_detect
@@ -85,6 +86,8 @@ async def all_module_input_handler(update, context):
         nsfw_blocked = await nsfw_detect.nsfw_check_handler(update, context)
         if nsfw_blocked:
             return
+        # 媒体定时删除: 后台任务, 不阻断后续处理
+        await media_autodelete.media_autodelete_check_handler(update, context)
         visitor_blocked = await antispam.visitor_bot_check_handler(update, context)
         if visitor_blocked:
             return
@@ -105,6 +108,7 @@ async def all_module_input_handler(update, context):
     await keyword_reply.kwr_input_handler(update, context)
     await shop.shop_input_handler(update, context)
     await antispam.antispam_input_handler(update, context)
+    await media_autodelete.media_autodelete_input_handler(update, context)
     await autobutton.autobutton_input_handler(update, context)
     await weijinci.weijinci_input_handler(update, context)
     if await weijinci.weijinci_check_handler(update, context):
@@ -334,6 +338,7 @@ def main():
     app.add_handler(CallbackQueryHandler(ai.ai_callback_handler, pattern="^ai_"))
     app.add_handler(CallbackQueryHandler(speak_check.speak_check_callback_handler, pattern="^spk_"))
     app.add_handler(CallbackQueryHandler(antispam.antispam_callback_handler, pattern="^as_"))
+    app.add_handler(CallbackQueryHandler(media_autodelete.media_autodelete_callback_handler, pattern="^mad_"))
     app.add_handler(CallbackQueryHandler(toggle_group.toggle_callback_handler, pattern="^tg_"))
     app.add_handler(CallbackQueryHandler(keyword_reply.kwr_callback_handler, pattern="^kwr_"))
     app.add_handler(CallbackQueryHandler(shop.shop_callback_handler, pattern="^shop_"))

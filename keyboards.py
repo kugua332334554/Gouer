@@ -139,6 +139,7 @@ def get_group_manage_keyboard(chat_id: str, lang: str = DEFAULT_LANG) -> InlineK
         [InlineKeyboardButton("反垃圾", callback_data=f"as_panel_{chat_id}", icon_custom_emoji_id="5447644880824181073"),
          InlineKeyboardButton("发言检查", callback_data=f"spk_panel_{chat_id}", icon_custom_emoji_id="5994378914636500516")],
         [InlineKeyboardButton("NSFW 识别", callback_data=f"nsfw_panel_{chat_id}", icon_custom_emoji_id="5931409969613116639")],
+        [InlineKeyboardButton("媒体定时删除", callback_data=f"mad_panel_{chat_id}", icon_custom_emoji_id="5879937509579820068")],
         [InlineKeyboardButton("开关群", callback_data=f"tg_panel_{chat_id}", icon_custom_emoji_id="5363972600001216334"),
          InlineKeyboardButton(_("permission_btn", lang), callback_data=f"perm_panel_{chat_id}", icon_custom_emoji_id="5931409969613116639")],
         [InlineKeyboardButton(_("card_btn", lang), callback_data=f"card_panel_{chat_id}", icon_custom_emoji_id="5931409969613116639"),

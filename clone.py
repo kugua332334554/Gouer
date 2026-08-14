@@ -526,6 +526,13 @@ async def _create_clone_database(db_name: str) -> bool:
                     )
                 """)
                 await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_media_autodelete (
+                        chat_id BIGINT PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT FALSE,
+                        delete_minutes INT DEFAULT 5
+                    )
+                """)
+                await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_permission (
                         chat_id BIGINT PRIMARY KEY,
                         permissions VARCHAR(255) DEFAULT 'all'

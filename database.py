@@ -308,6 +308,13 @@ async def init_db():
                     await cur.execute("ALTER TABLE group_autodelete ADD COLUMN join_leave BOOLEAN DEFAULT FALSE")
                 except Exception: pass
                 await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_media_autodelete (
+                        chat_id BIGINT PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT FALSE,
+                        delete_minutes INT DEFAULT 5
+                    )
+                """)
+                await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_permission (
                         chat_id BIGINT PRIMARY KEY,
                         permissions VARCHAR(255) DEFAULT 'all'
@@ -1551,6 +1558,40 @@ async def update_antispam_settings(chat_id: int, **kwargs):
                 await cur.execute(f"UPDATE group_antispam SET {', '.join(parts)} WHERE chat_id=%s", vals)
     except Exception as e:
         logger.error(f"update_antispam_settings err: {e}")
+
+
+# ── 媒体定时删除 ──────────────────────────────────────
+
+async def get_media_autodelete_settings(chat_id: int) -> dict:
+    defaults = {"enabled": False, "delete_minutes": 5}
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT enabled, delete_minutes FROM group_media_autodelete WHERE chat_id=%s", (chat_id,))
+                row = await cur.fetchone()
+                if row:
+                    return {"enabled": bool(row[0]), "delete_minutes": row[1] or 5}
+    except Exception as e:
+        logger.error(f"get_media_autodelete_settings err: {e}")
+    return defaults
+
+
+async def update_media_autodelete_settings(chat_id: int, **kwargs):
+    if not kwargs:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("INSERT IGNORE INTO group_media_autodelete (chat_id) VALUES (%s)", (chat_id,))
+                parts, vals = [], []
+                for k, v in kwargs.items():
+                    parts.append(f"{validate_column_name(k)}=%s")
+                    vals.append(v)
+                vals.append(chat_id)
+                await cur.execute(f"UPDATE group_media_autodelete SET {', '.join(parts)} WHERE chat_id=%s", vals)
+    except Exception as e:
+        logger.error(f"update_media_autodelete_settings err: {e}")
 
 
 # ── 关键词回复 ──────────────────────────────────────

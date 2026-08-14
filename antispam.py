@@ -455,8 +455,8 @@ async def antispam_input_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 # ── 消息拦截 ──────────────────────────────────────
 
-_URL_RE = re.compile(r"(?:https?://|www\.|t\.me/)\S+", re.I)
-_LONG_URL_RE = re.compile(r"(?:https?://|www\.|t\.me/)\S{50,}", re.I)
+_URL_RE = re.compile(r"(?:https?://|www\.)\S+|t\.me\b", re.I)
+_LONG_URL_RE = re.compile(r"(?:https?://|www\.|t\.me\b)\S{50,}", re.I)
 
 
 async def visitor_bot_check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -605,28 +605,24 @@ async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if mentions > 3:
             return True, f"过多@ ({mentions}个)"
 
-    # 8. 所有链接 — 检查 text / caption / 内嵌 entity
+    # 8. 所有链接 — 优先按 Telegram 打的 url/text_link 实体拦截, 正则兜底
     if s["block_links"]:
         content = msg.text or msg.caption or ""
+        # text_link(锚文本隐藏URL) / url(文本即URL) 实体, 只要是 Telegram 识别的链接就拦
+        ents = list(msg.entities or []) + list(msg.caption_entities or [])
+        for ent in ents:
+            if ent.type == "text_link" and getattr(ent, "url", None):
+                return True, "链接"
+            if ent.type == "url":
+                return True, "链接"
+        # 兜底: 文本正则, 覆盖 Telegram 没打实体但包含链接形态的文本
         if _URL_RE.search(content):
             return True, "链接"
         # Markdown 隐藏链裸文本： [锚文本](URL) 或 (URL)
-        if re.search(r"\]\s*\(\s*\S+://\S+", content) or re.search(r"\(\s*(?:https?://|www\.|t\.me/)\S+", content):
+        if re.search(r"\]\s*\(\s*\S+://\S+", content) or re.search(r"\(\s*(?:https?://|www\.|t\.me\b)\S+", content):
             return True, "链接"
-        # 内嵌 entity：text_link（锚文本隐藏URL）/ url（文本即URL）都查
-        ents = list(msg.entities or []) + list(msg.caption_entities or [])
-        logger.info(f"antispam: block_links ents={[(e.type, getattr(e, 'url', None)) for e in ents]}")
-        for ent in ents:
-            if getattr(ent, "url", None):
-                if _URL_RE.search(ent.url):
-                    return True, "链接"
-            elif ent.type == "url":
-                # url 实体无 .url，网址在文本切片里
-                link = content[ent.offset:ent.offset + ent.length]
-                if _URL_RE.search(link):
-                    return True, "链接"
 
-    # 9. 超长链接 — 同样检查 text / caption / 内嵌 entity
+    # 9. 超长链接 — 同样覆盖 text / caption / 内嵌 entity
     if s["block_long_links"]:
         content = msg.text or msg.caption or ""
         if _LONG_URL_RE.search(content):

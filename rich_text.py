@@ -61,7 +61,7 @@ def _find_location(node):
     return None
 
 
-_URL_HINT_RE = re.compile(r"://|(?:^|\s)(?:www\.|t\.me/)", re.I)
+_URL_HINT_RE = re.compile(r"://|(?:^|\s)(?:www\.|t\.me\b)", re.I)
 
 
 def _rich_links(node, out):
@@ -78,7 +78,7 @@ def _rich_links(node, out):
             # 收链接时全树扫，不跳过 entities/link_preview_options —— URL 最可能藏在那
             if isinstance(value, str):
                 # 去噪：跳过可见纯文本里没有链接特征的值，只收真正的 URL
-                for m in re.finditer(r"\S*(?:://\S+|www\.\S+|t\.me/\S*)", value):
+                for m in re.finditer(r"\S*(?:://\S+|www\.\S+|t\.me\b\S*)", value):
                     out.add(m.group(0))
             else:
                 _rich_links(value, out)
