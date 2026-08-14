@@ -25,6 +25,119 @@ PENALTY_OPTIONS = {"delete": "仅删除", "mute": "禁言", "kick": "踢出", "b
 _flood_tracker = defaultdict(lambda: defaultdict(list))
 _AWAIT_ANTISPAM = {}
 
+# @ 访客机器人追踪: chat_id → {caller_user_id: [(msg_id, bot_username, timestamp), ...]}
+# 用于在访客机器人发言后回溯删除调用者 @ 它的那条消息
+_mention_tracker = defaultdict(lambda: defaultdict(list))
+
+_MENTION_WINDOW = 10  # 回溯删除的匹配窗口(秒)
+
+
+def record_bot_mentions(update: Update):
+    """记录群里普通用户 @ 机器人 的消息, 供访客机器人发言时回溯删除。
+
+    只记录 mention/text_mention 指向 bot 用户名的那条消息的 message_id,
+    关联调用者 user_id。10 秒窗口内若有访客机器人发言, 按 username 匹配删除。
+    """
+    msg = update.message
+    if not msg:
+        return
+    chat = update.effective_chat
+    if not chat or chat.type not in ("group", "supergroup"):
+        return
+    caller = msg.from_user
+    if not caller or caller.is_bot:
+        return
+    entities = list(msg.entities or []) + list(msg.caption_entities or [])
+    if not entities:
+        return
+    content = msg.text or msg.caption or ""
+    now = time.monotonic()
+    for ent in entities:
+        target = None
+        if ent.type == "mention":
+            # @username 直接写在文本里
+            target = content[ent.offset:ent.offset + ent.length].lstrip("@")
+        elif ent.type == "text_mention":
+            u = getattr(ent, "user", None)
+            if u is not None and u.is_bot and getattr(u, "username", None):
+                target = u.username
+        if target:
+            _mention_tracker[chat.id][caller.id].append((msg.message_id, target.lower(), now))
+    # 就地清理当前 chat 的过期条目, 避免依赖 24h 定时器、防止内存膨胀
+    _prune_mentions_for_chat(chat.id, now)
+
+
+def _prune_mentions_for_chat(chat_id, now=None):
+    """裁剪指定 chat 里超出窗口的 @ 追踪条目。"""
+    if now is None:
+        now = time.monotonic()
+    chat_trackers = _mention_tracker.get(chat_id)
+    if not chat_trackers:
+        return
+    for user_id in list(chat_trackers.keys()):
+        lst = chat_trackers[user_id]
+        lst[:] = [(mid, uname, t) for mid, uname, t in lst if now - t <= _MENTION_WINDOW]
+        if not lst:
+            chat_trackers.pop(user_id, None)
+    if not chat_trackers:
+        _mention_tracker.pop(chat_id, None)
+
+
+def cleanup_mention_tracker():
+    """清理 @ 追踪里过期的条目, 防止内存无限增长。"""
+    now = time.monotonic()
+    for chat_id in list(_mention_tracker.keys()):
+        chat_trackers = _mention_tracker[chat_id]
+        for user_id in list(chat_trackers.keys()):
+            lst = chat_trackers[user_id]
+            lst[:] = [(mid, uname, t) for mid, uname, t in lst if now - t <= _MENTION_WINDOW]
+            if not lst:
+                chat_trackers.pop(user_id, None)
+        if not chat_trackers:
+            _mention_tracker.pop(chat_id, None)
+
+
+async def _delete_caller_mention_msg(context, chat_id, caller_id, bot_username):
+    """删除调用者 @ 该访客机器人的原始消息。
+
+    根据 caller_id + 访客机器人 username 在 _mention_tracker 里匹配,
+    命中则删除对应 message_id。访客机器人 update 不带调用者消息 ID,
+    但 @ 消息本身真实存在于群里, 通过记录+匹配即可定位。
+    """
+    try:
+        caller_trackers = _mention_tracker.get(chat_id, {}).get(caller_id)
+        if not caller_trackers:
+            return
+        uname = (bot_username or "").lower()
+        if not uname:
+            return
+        now = time.monotonic()
+        matched = []
+        keep = []
+        for mid, m_uname, t in caller_trackers:
+            if now - t <= _MENTION_WINDOW and m_uname == uname:
+                matched.append(mid)
+            else:
+                keep.append((mid, m_uname, t))
+        # 只保留未命中的条目
+        if keep:
+            _mention_tracker[chat_id][caller_id] = keep
+        else:
+            _mention_tracker[chat_id].pop(caller_id, None)
+            if not _mention_tracker[chat_id]:
+                _mention_tracker.pop(chat_id, None)
+        for mid in matched:
+            await _delete_caller_message(context, chat_id, mid)
+    except Exception:
+        pass
+
+
+async def _delete_caller_message(context, chat_id, msg_id):
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+    except Exception:
+        pass
+
 
 def cleanup_flood_tracker():
     """清理刷屏追踪里过期/空的条目, 防止 _flood_tracker 内存无限增长。
@@ -51,6 +164,7 @@ LABELS = {
     "block_mention": "屏蔽@用户", "block_links": "屏蔽所有链接",
     "block_long_links": "屏蔽超长链接",
     "block_flood": "屏蔽刷屏",
+    "block_visitor_bots": "拦截访客机器人",
 }
 
 
@@ -61,7 +175,7 @@ def get_antispam_keyboard(chat_id: str, s: dict) -> InlineKeyboardMarkup:
         "block_channel_send": "chsend", "block_channel_fwd": "chfwd",
         "block_external_ref": "extref", "block_exe": "exe", "block_mention": "mention",
         "block_links": "links", "block_long_links": "longlinks",
-        "block_flood": "flood",
+        "block_flood": "flood", "block_visitor_bots": "visitor",
     }
     kb_rows = []
     for key, cb in _cb_map.items():
@@ -73,6 +187,7 @@ def get_antispam_keyboard(chat_id: str, s: dict) -> InlineKeyboardMarkup:
         kb_rows + [
         [InlineKeyboardButton(f"刷屏阈值: {s['flood_count']}条/{s['flood_timeout']}s", callback_data=f"as_floodset_{chat_id}")],
         [InlineKeyboardButton(f'惩罚: {PENALTY_OPTIONS.get(s["penalty"], s["penalty"])}', callback_data=f"as_penalty_{chat_id}")],
+        [InlineKeyboardButton("访客机器人处罚设置", callback_data=f"as_visitorpen_{chat_id}")],
         [InlineKeyboardButton(f'禁言时长: {s.get("mute_duration", 3600) // 60}分钟', callback_data=f"as_mutedur_{chat_id}")],
         [InlineKeyboardButton(f'白名单 ({len(_parse_whitelist(s["whitelist"]))}人)', callback_data=f"as_whitelist_{chat_id}")],
         [InlineKeyboardButton(f'提示删除: {s["warn_delete"]}s', callback_data=f"as_warndel_{chat_id}")],
@@ -129,6 +244,7 @@ async def antispam_callback_handler(update: Update, context: ContextTypes.DEFAUL
         "as_mention_": "block_mention", "as_links_": "block_links",
         "as_longlinks_": "block_long_links",
         "as_flood_": "block_flood",
+        "as_visitor_": "block_visitor_bots",
     }
     for prefix, key in key_map.items():
         if data.startswith(prefix):
@@ -156,6 +272,72 @@ async def antispam_callback_handler(update: Update, context: ContextTypes.DEFAUL
         s = await database.get_antispam_settings(chat_id)
         text = f'<tg-emoji emoji-id="{SETTINGS_EMOJI}">⚙️</tg-emoji> <b>反垃圾</b>\n\n功能: {"开" if s["enabled"] else "关"}'
         await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=get_antispam_keyboard(str(chat_id), s))
+        return
+
+    # 访客机器人处罚设置（子菜单）
+    if data.startswith("as_visitorpen_"):
+        await query.answer()
+        s = await database.get_antispam_settings(chat_id)
+        bot_pen = s.get("visitor_bot_penalty", "ban")
+        caller_pen = s.get("visitor_caller_penalty", "delete")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f'访客机器人处罚: {PENALTY_OPTIONS.get(bot_pen, bot_pen)}', callback_data=f"as_vbotpen_{chat_id}")],
+            [InlineKeyboardButton(f'调用者处罚: {PENALTY_OPTIONS.get(caller_pen, caller_pen)}', callback_data=f"as_vcallerpen_{chat_id}")],
+            [InlineKeyboardButton("« 返回", callback_data=f"as_panel_{chat_id}")],
+        ])
+        await query.edit_message_text("设置访客机器人的处罚方式：", reply_markup=kb)
+        return
+
+    if data.startswith("as_vbotpen_"):
+        await query.answer()
+        s = await database.get_antispam_settings(chat_id)
+        cur = s.get("visitor_bot_penalty", "ban")
+        kb = []
+        for k, v in PENALTY_OPTIONS.items():
+            kb.append([InlineKeyboardButton(v, callback_data=f"as_setvbotpen_{chat_id}_{k}")])
+        kb.append([InlineKeyboardButton("« 返回", callback_data=f"as_visitorpen_{chat_id}")])
+        await query.edit_message_text(f"选择访客机器人处罚方式（当前：{PENALTY_OPTIONS.get(cur, cur)}）：", reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data.startswith("as_setvbotpen_"):
+        penalty = data.split("_")[-1]
+        await database.update_antispam_settings(chat_id, visitor_bot_penalty=penalty)
+        await query.answer(f'访客机器人处罚已设为 {PENALTY_OPTIONS.get(penalty, penalty)}')
+        s = await database.get_antispam_settings(chat_id)
+        bot_pen = s.get("visitor_bot_penalty", "ban")
+        caller_pen = s.get("visitor_caller_penalty", "delete")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f'访客机器人处罚: {PENALTY_OPTIONS.get(bot_pen, bot_pen)}', callback_data=f"as_vbotpen_{chat_id}")],
+            [InlineKeyboardButton(f'调用者处罚: {PENALTY_OPTIONS.get(caller_pen, caller_pen)}', callback_data=f"as_vcallerpen_{chat_id}")],
+            [InlineKeyboardButton("« 返回", callback_data=f"as_panel_{chat_id}")],
+        ])
+        await query.edit_message_text("设置访客机器人的处罚方式：", reply_markup=kb)
+        return
+
+    if data.startswith("as_vcallerpen_"):
+        await query.answer()
+        s = await database.get_antispam_settings(chat_id)
+        cur = s.get("visitor_caller_penalty", "delete")
+        kb = []
+        for k, v in PENALTY_OPTIONS.items():
+            kb.append([InlineKeyboardButton(v, callback_data=f"as_setvcallerpen_{chat_id}_{k}")])
+        kb.append([InlineKeyboardButton("« 返回", callback_data=f"as_visitorpen_{chat_id}")])
+        await query.edit_message_text(f"选择调用者处罚方式（当前：{PENALTY_OPTIONS.get(cur, cur)}）：", reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    if data.startswith("as_setvcallerpen_"):
+        penalty = data.split("_")[-1]
+        await database.update_antispam_settings(chat_id, visitor_caller_penalty=penalty)
+        await query.answer(f'调用者处罚已设为 {PENALTY_OPTIONS.get(penalty, penalty)}')
+        s = await database.get_antispam_settings(chat_id)
+        bot_pen = s.get("visitor_bot_penalty", "ban")
+        caller_pen = s.get("visitor_caller_penalty", "delete")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f'访客机器人处罚: {PENALTY_OPTIONS.get(bot_pen, bot_pen)}', callback_data=f"as_vbotpen_{chat_id}")],
+            [InlineKeyboardButton(f'调用者处罚: {PENALTY_OPTIONS.get(caller_pen, caller_pen)}', callback_data=f"as_vcallerpen_{chat_id}")],
+            [InlineKeyboardButton("« 返回", callback_data=f"as_panel_{chat_id}")],
+        ])
+        await query.edit_message_text("设置访客机器人的处罚方式：", reply_markup=kb)
         return
 
     # 白名单管理
@@ -277,6 +459,91 @@ _URL_RE = re.compile(r"(?:https?://|www\.|t\.me/)\S+", re.I)
 _LONG_URL_RE = re.compile(r"(?:https?://|www\.|t\.me/)\S{50,}", re.I)
 
 
+async def visitor_bot_check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """拦截访客机器人发言。
+
+    访客机器人(Guest Bot)在群里发言时, Message 会携带 guest_bot_caller_user /
+    guest_bot_caller_chat / guest_query_id 字段, 可据此识别并拿到调用者身份。
+    """
+    msg = update.message
+    if not msg:
+        return False
+    chat = update.effective_chat
+    if not chat or chat.type not in ("group", "supergroup"):
+        return False
+    user = msg.from_user
+    # 只针对机器人发言; 且必须携带访客机器人标记
+    if not user or not user.is_bot:
+        return False
+    caller = getattr(msg, "guest_bot_caller_user", None)
+    if caller is None:
+        return False
+
+    s = await database.get_antispam_settings(chat.id)
+    if not s.get("block_visitor_bots"):
+        return False
+
+    bot_id = user.id
+    caller_id = caller.id if hasattr(caller, "id") else None
+
+    # 删除访客机器人消息
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+
+    # 分别处罚：访客机器人 + 调用者
+    bot_pen = s.get("visitor_bot_penalty", "ban")
+    caller_pen = s.get("visitor_caller_penalty", "delete")
+    # 访客机器人的发言已在上方 msg.delete() 删除; 其余处罚走 _apply_penalty
+    if bot_pen != "delete":
+        await _apply_penalty(context, chat.id, bot_id, bot_pen, s)
+    if caller_id is not None:
+        if caller_pen == "delete":
+            await _delete_caller_mention_msg(context, chat.id, caller_id, user.username)
+        else:
+            await _apply_penalty(context, chat.id, caller_id, caller_pen, s)
+
+    # 警告提示
+    try:
+        warn_msg = await context.bot.send_message(
+            chat.id,
+            f'<tg-emoji emoji-id="{WARN_EMOJI_ID}">⚠️</tg-emoji> 检测到访客机器人发言，已拦截\n'
+            f'访客机器人: <code>{bot_id}</code>（{PENALTY_OPTIONS.get(bot_pen, bot_pen)}）\n'
+            f'调用者: <code>{caller_id}</code>（{PENALTY_OPTIONS.get(caller_pen, caller_pen)}）',
+            parse_mode="HTML"
+        )
+        asyncio.create_task(_del_warn(context.bot, chat.id, warn_msg.message_id, s["warn_delete"]))
+    except Exception:
+        pass
+
+    return True
+
+
+async def _apply_penalty(context, chat_id, user_id, penalty, s):
+    """按指定处罚方式处理单个用户，失败静默。"""
+    if penalty == "mute":
+        try:
+            from datetime import datetime, timedelta
+            dur = s.get("mute_duration", 3600)
+            until = datetime.utcnow() + timedelta(seconds=dur)
+            await context.bot.restrict_chat_member(chat_id, user_id,
+                permissions=ChatPermissions(can_send_messages=False), until_date=until)
+        except Exception:
+            pass
+    elif penalty == "kick":
+        try:
+            await context.bot.ban_chat_member(chat_id, user_id)
+            await context.bot.unban_chat_member(chat_id, user_id)
+        except Exception:
+            pass
+    elif penalty == "ban":
+        try:
+            await context.bot.ban_chat_member(chat_id, user_id)
+        except Exception:
+            pass
+
+
 async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -293,7 +560,7 @@ async def check_antispam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     has_any = any(s.get(k) for k in [
         "block_contact", "block_location", "block_channel_send", "block_channel_fwd",
         "block_external_ref", "block_exe", "block_mention", "block_links",
-        "block_long_links", "block_flood"])
+        "block_long_links", "block_flood", "block_visitor_bots"])
     if not has_any:
         return False, ""
     # debug log

@@ -74,6 +74,8 @@ async def all_module_input_handler(update, context):
         ab = await anti_bot.check_anti_bot(update, context)
         if ab:
             return
+        # 记录普通用户 @ 机器人的消息, 供访客机器人拦截时回溯删除调用者 @ 消息
+        antispam.record_bot_mentions(update)
         toggled = await toggle_group.check_toggle_keywords(update, context)
         if toggled:
             return
@@ -82,6 +84,9 @@ async def all_module_input_handler(update, context):
             return
         nsfw_blocked = await nsfw_detect.nsfw_check_handler(update, context)
         if nsfw_blocked:
+            return
+        visitor_blocked = await antispam.visitor_bot_check_handler(update, context)
+        if visitor_blocked:
             return
         blocked = await antispam.antispam_check_handler(update, context)
         if blocked:
@@ -150,6 +155,11 @@ async def _run_daily_cleanup():
             antispam.cleanup_flood_tracker()
         except Exception as e:
             logger.error(f"flood tracker cleanup err: {e}", exc_info=True)
+        # 清理 @ 访客机器人追踪条目
+        try:
+            antispam.cleanup_mention_tracker()
+        except Exception as e:
+            logger.error(f"mention tracker cleanup err: {e}", exc_info=True)
         await asyncio.sleep(24 * 3600)
 
 

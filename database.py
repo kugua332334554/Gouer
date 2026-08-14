@@ -413,9 +413,19 @@ async def init_db():
                         penalty VARCHAR(20) DEFAULT 'delete',
                         mute_duration INT DEFAULT 3600,
                         whitelist TEXT,
-                        warn_delete INT DEFAULT 30
+                        warn_delete INT DEFAULT 30,
+                        visitor_bot_penalty VARCHAR(20) DEFAULT 'ban',
+                        visitor_caller_penalty VARCHAR(20) DEFAULT 'delete'
                     )
                 """)
+                try:
+                    await cur.execute("ALTER TABLE group_antispam ADD COLUMN visitor_bot_penalty VARCHAR(20) DEFAULT 'ban'")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_antispam ADD COLUMN visitor_caller_penalty VARCHAR(20) DEFAULT 'delete'")
+                except Exception:
+                    pass
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_toggle (
                         chat_id BIGINT PRIMARY KEY,
@@ -1506,14 +1516,16 @@ async def get_antispam_settings(chat_id: int) -> dict:
                 "block_exe": False, "block_mention": False, "block_links": False,
                 "block_long_links": False, "block_visitor_bots": False, "block_flood": False,
                 "flood_timeout": 10, "flood_count": 5, "penalty": "delete", "mute_duration": 3600,
-                "whitelist": "", "warn_delete": 30}
+                "whitelist": "", "warn_delete": 30,
+                "visitor_bot_penalty": "ban", "visitor_caller_penalty": "delete"}
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
                     "SELECT enabled, block_contact, block_location, block_channel_send, block_channel_fwd, "
                     "block_external_ref, block_exe, block_mention, block_links, block_long_links, "
-                    "block_visitor_bots, block_flood, flood_timeout, flood_count, penalty, mute_duration, whitelist, warn_delete "
+                    "block_visitor_bots, block_flood, flood_timeout, flood_count, penalty, mute_duration, whitelist, warn_delete, "
+                    "visitor_bot_penalty, visitor_caller_penalty "
                     "FROM group_antispam WHERE chat_id=%s", (chat_id,))
                 row = await cur.fetchone()
                 if row:

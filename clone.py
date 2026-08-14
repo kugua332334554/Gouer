@@ -615,7 +615,9 @@ async def _create_clone_database(db_name: str) -> bool:
                         penalty VARCHAR(20) DEFAULT 'delete',
                         mute_duration INT DEFAULT 3600,
                         whitelist TEXT,
-                        warn_delete INT DEFAULT 30
+                        warn_delete INT DEFAULT 30,
+                        visitor_bot_penalty VARCHAR(20) DEFAULT 'ban',
+                        visitor_caller_penalty VARCHAR(20) DEFAULT 'delete'
                     )
                 """)
                 await cur.execute("""
