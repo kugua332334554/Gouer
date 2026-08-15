@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import random
 import time
@@ -164,7 +165,7 @@ async def anti_bot_callback_handler(update: Update, context: ContextTypes.DEFAUL
         ms = int(e * 1000)
         warn = f" ⚠️{ms}ms" if e < 1.0 else ""
         mark = " ✅" if correct else " ❌"
-        items.append(f"{emoji} {n} · {e:.2f}s{mark}{warn}")
+        items.append(f"{emoji} {html.escape(n)} · {e:.2f}s{mark}{warn}")
 
     live_text = (
         f'{test["header_text"]}\n\n'
@@ -179,8 +180,12 @@ async def anti_bot_callback_handler(update: Update, context: ContextTypes.DEFAUL
             reply_markup=query.message.reply_markup,
             disable_web_page_preview=True
         )
-    except Exception:
-        pass  # 消息没变化时不报错
+    except Exception as e:
+        # 消息没变化时报 "message is not modified"，属正常，降级为 debug；其余打 error
+        if "not modified" in str(e).lower():
+            logger.debug(f"anti_bot_callback: message not modified chat={chat_id}")
+        else:
+            logger.error(f"anti_bot_callback: edit_message_text failed chat={chat_id}: {e}", exc_info=True)
 
 
 async def _finish_test(context, chat_id, msg_id):
@@ -224,18 +229,18 @@ async def _finish_test(context, chat_id, msg_id):
     for uid, name, elapsed in legit:
         ms = int(elapsed * 1000)
         warn = f' <tg-emoji emoji-id="{WARN_EMOJI}">⚠️</tg-emoji>秒抢 {ms}ms' if elapsed < 2 else ""
-        lines.append(f'<tg-emoji emoji-id="{GOLD_EMOJI}">🥇</tg-emoji> {name} · {elapsed:.2f}<tg-emoji emoji-id="{BILL_EMOJI}">💴</tg-emoji> · {now}{warn}')
+        lines.append(f'<tg-emoji emoji-id="{GOLD_EMOJI}">🥇</tg-emoji> {html.escape(name)} · {elapsed:.2f}<tg-emoji emoji-id="{BILL_EMOJI}">💴</tg-emoji> · {now}{warn}')
 
     if wrong:
         for uid, name, elapsed in wrong:
-            lines.append(f'❌ {name} · {elapsed:.2f}s')
+            lines.append(f'❌ {html.escape(name)} · {elapsed:.2f}s')
 
     if suspects:
         lines.append('')
         lines.append(f'<tg-emoji emoji-id="{ALERT_EMOJI}">🚨</tg-emoji> <b>外挂嫌疑 ×{len(suspects)}</b>')
         for uid, name, elapsed in suspects:
             ms = int(elapsed * 1000)
-            lines.append(f'<tg-emoji emoji-id="{RED_DOT_EMOJI}">🔴</tg-emoji> <b>{name}</b>')
+            lines.append(f'<tg-emoji emoji-id="{RED_DOT_EMOJI}">🔴</tg-emoji> <b>{html.escape(name)}</b>')
             lines.append(f'    秒抢 {ms}ms')
 
     result_text = "\n".join(lines)
@@ -288,8 +293,7 @@ def _build_ban_keyboard(chat_id, pending, candidates):
     if candidates:
         kb.append([InlineKeyboardButton(
             f"加入集群黑名单 ({len(candidates)}人)",
-            callback_data=f"atb_blacklist_{chat_id}",
-            icon_custom_emoji_id="5397994032385239776"
+            callback_data=f"atb_blacklist_{chat_id}"
         )])
     return kb
 
@@ -298,7 +302,7 @@ async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     """处理封禁按钮"""
     query = update.callback_query
     data = query.data
-    if not data.startswith("atb_ban"):
+    if not (data.startswith("atb_ban") or data.startswith("atb_blacklist")):
         return
 
     parts = data.split("_")
@@ -310,7 +314,8 @@ async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         if member.status not in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
             await query.answer("⚠️ 只有管理员才能操作", show_alert=True)
             return
-    except Exception:
+    except Exception as e:
+        logger.error(f"anti_bot_ban: get_chat_member failed chat={chat_id} user={user_id}: {e}", exc_info=True)
         return
 
     if data.startswith("atb_banall_"):
@@ -321,8 +326,8 @@ async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             try:
                 await context.bot.ban_chat_member(chat_id, uid)
                 banned += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"anti_bot_ban: ban_chat_member failed chat={chat_id} uid={uid} ({name}): {e}")
         await query.answer(f"已封禁 {banned}/{len(suspects)} 人", show_alert=True)
 
     elif data.startswith("atb_banone_"):
@@ -353,5 +358,5 @@ async def anti_bot_ban_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     kb = _build_ban_keyboard(chat_id, _pending_bans.get(chat_id, []), _blacklist_candidates.get(chat_id, []))
     try:
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(kb) if kb else None)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"anti_bot_ban: edit_message_reply_markup failed chat={chat_id}: {e}")
