@@ -146,6 +146,8 @@ def get_group_manage_keyboard(chat_id: str, lang: str = DEFAULT_LANG) -> InlineK
          InlineKeyboardButton(_("ai_btn", lang), callback_data=f"ai_panel_{chat_id}", icon_custom_emoji_id="5931409969613116639")],
         [InlineKeyboardButton("关键词回复", callback_data=f"kwr_panel_{chat_id}", icon_custom_emoji_id="5816469716989912535")],
         [InlineKeyboardButton("积分商城", callback_data=f"shop_admin_{chat_id}", icon_custom_emoji_id="6044023213250319833")],
+        [InlineKeyboardButton("Z0 汇率报价", callback_data=f"z0_panel_{chat_id}", icon_custom_emoji_id="5875506366050734240"),
+         InlineKeyboardButton("地址识别查询", callback_data=f"addr_panel_{chat_id}", icon_custom_emoji_id="5875506366050734240")],
         [InlineKeyboardButton("« " + _("back_group_list", lang), callback_data="group")]
     ]
     return InlineKeyboardMarkup(keyboard)

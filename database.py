@@ -487,6 +487,20 @@ async def init_db():
                     await cur.execute("ALTER TABLE group_shop ADD COLUMN card_data TEXT DEFAULT NULL")
                 except Exception: pass
                 await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_z0 (
+                        chat_id BIGINT PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT FALSE,
+                        delete_seconds INT DEFAULT 0
+                    )
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_addr (
+                        chat_id BIGINT PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT FALSE,
+                        delete_seconds INT DEFAULT 0
+                    )
+                """)
+                await cur.execute("""
                     CREATE TABLE IF NOT EXISTS group_points_lottery (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         chat_id BIGINT NOT NULL,
@@ -1882,3 +1896,73 @@ async def toggle_keyword_reply(reply_id: int) -> bool:
     except Exception as e:
         logger.error(f"toggle_keyword_reply err: {e}")
     return False
+
+
+# ── Z0 汇率报价 ──────────────────────────────────────
+
+async def get_z0_settings(chat_id: int) -> dict:
+    """获取 z0 汇率报价配置，默认关闭且不自动删除。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT enabled, delete_seconds FROM group_z0 WHERE chat_id=%s", (chat_id,))
+                row = await cur.fetchone()
+                if row:
+                    return {"enabled": bool(row[0]), "delete_seconds": row[1] or 0}
+    except Exception as e:
+        logger.error(f"get_z0_settings err: {e}")
+    return {"enabled": False, "delete_seconds": 0}
+
+
+async def update_z0_settings(chat_id: int, **kwargs):
+    """更新 z0 汇率报价配置。"""
+    if not kwargs:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("INSERT IGNORE INTO group_z0 (chat_id) VALUES (%s)", (chat_id,))
+                parts, vals = [], []
+                for k, v in kwargs.items():
+                    parts.append(f"{validate_column_name(k)}=%s")
+                    vals.append(v)
+                vals.append(chat_id)
+                await cur.execute(f"UPDATE group_z0 SET {', '.join(parts)} WHERE chat_id=%s", vals)
+    except Exception as e:
+        logger.error(f"update_z0_settings err: {e}")
+
+
+# ── 地址识别余额查询 ──────────────────────────────────────
+
+async def get_addr_settings(chat_id: int) -> dict:
+    """获取地址识别查询配置，默认关闭且不自动删除。"""
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT enabled, delete_seconds FROM group_addr WHERE chat_id=%s", (chat_id,))
+                row = await cur.fetchone()
+                if row:
+                    return {"enabled": bool(row[0]), "delete_seconds": row[1] or 0}
+    except Exception as e:
+        logger.error(f"get_addr_settings err: {e}")
+    return {"enabled": False, "delete_seconds": 0}
+
+
+async def update_addr_settings(chat_id: int, **kwargs):
+    """更新地址识别查询配置。"""
+    if not kwargs:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("INSERT IGNORE INTO group_addr (chat_id) VALUES (%s)", (chat_id,))
+                parts, vals = [], []
+                for k, v in kwargs.items():
+                    parts.append(f"{validate_column_name(k)}=%s")
+                    vals.append(v)
+                vals.append(chat_id)
+                await cur.execute(f"UPDATE group_addr SET {', '.join(parts)} WHERE chat_id=%s", vals)
+    except Exception as e:
+        logger.error(f"update_addr_settings err: {e}")

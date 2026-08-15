@@ -968,6 +968,14 @@ def _clear_all_await_states(user_id: int):
     except: pass
     try: __import__('shop')._AWAIT_SHOP.pop(user_id, None)
     except: pass
+    try: __import__('z0')._AWAIT_Z0.pop(user_id, None)
+    except: pass
+    try: __import__('z0')._AWAIT_Z0.pop(f"{user_id}_conv", None)
+    except: pass
+    try: __import__('addr')._AWAIT_ADDR.pop(user_id, None)
+    except: pass
+    try: __import__('addr')._AWAIT_ADDR.pop(f"{user_id}_conv", None)
+    except: pass
     try: __import__('keyword_reply')._AWAIT_KWR.pop(user_id, None)
     except: pass
     try: __import__('card')._AWAIT_CARD.pop(user_id, None)

@@ -53,6 +53,8 @@ import media_autodelete
 import keyword_reply
 import shop
 import nsfw_detect
+import z0
+import addr
 
 
 async def all_module_input_handler(update, context):
@@ -83,6 +85,12 @@ async def all_module_input_handler(update, context):
         kwr_matched = await keyword_reply.kwr_check_handler(update, context)
         if kwr_matched:
             return
+        z0_matched = await z0.z0_check_handler(update, context)
+        if z0_matched:
+            return
+        addr_matched = await addr.addr_check_handler(update, context)
+        if addr_matched:
+            return
         nsfw_blocked = await nsfw_detect.nsfw_check_handler(update, context)
         if nsfw_blocked:
             return
@@ -107,6 +115,8 @@ async def all_module_input_handler(update, context):
     await toggle_group.toggle_input_handler(update, context)
     await keyword_reply.kwr_input_handler(update, context)
     await shop.shop_input_handler(update, context)
+    await z0.z0_input_handler(update, context)
+    await addr.addr_input_handler(update, context)
     await antispam.antispam_input_handler(update, context)
     await media_autodelete.media_autodelete_input_handler(update, context)
     await autobutton.autobutton_input_handler(update, context)
@@ -343,6 +353,8 @@ def main():
     app.add_handler(CallbackQueryHandler(keyword_reply.kwr_callback_handler, pattern="^kwr_"))
     app.add_handler(CallbackQueryHandler(shop.shop_callback_handler, pattern="^shop_"))
     app.add_handler(CallbackQueryHandler(nsfw_detect.nsfw_callback_handler, pattern="^nsfw_"))
+    app.add_handler(CallbackQueryHandler(z0.z0_callback_handler, pattern="^z0_"))
+    app.add_handler(CallbackQueryHandler(addr.addr_callback_handler, pattern="^addr_"))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(ChatMemberHandler(my_chat_member_handler, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(ChatMemberHandler(chat_member_update_handler, ChatMemberHandler.CHAT_MEMBER))
