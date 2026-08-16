@@ -646,18 +646,6 @@ async def _in_group_timeout(context, chat_id, user_id, duration, penalty):
             logger.error(f"timeout kick fail: {e}")
 
 
-async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle new members joining the group (already inside)."""
-    chat = update.effective_chat
-    for member in update.message.new_chat_members:
-        # If group uses join_by_request, chat_join_request_handler already verified;
-        # just send welcome here.
-        if getattr(chat, "join_by_request", False):
-            await send_welcome_message(context, chat, member)
-        else:
-            await perform_verification(context, chat, member)
-
-
 async def chat_member_update_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_member = update.chat_member
     if not chat_member:

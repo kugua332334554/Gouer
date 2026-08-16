@@ -31,7 +31,7 @@ from handlers import (
     points_rank_command,
     help_command
 )
-from auth import new_member_handler, auth_callback_handler, chat_member_update_handler, chat_join_request_handler
+from auth import auth_callback_handler, chat_member_update_handler, chat_join_request_handler
 from welcome import welcome_callback_handler, welcome_input_handler
 from jifen import checkin_handler, message_points_handler, points_query_handler
 import dingshi
@@ -358,7 +358,6 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(ChatMemberHandler(my_chat_member_handler, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(ChatMemberHandler(chat_member_update_handler, ChatMemberHandler.CHAT_MEMBER))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member_handler))
     app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, welcome_input_handler), group=1)
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, all_module_input_handler), group=0)
     app.add_handler(MessageHandler(filters.Regex("^签到$"), checkin_handler), group=2)
