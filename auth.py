@@ -2,6 +2,8 @@ import io
 import random
 import asyncio
 import logging
+import re
+import httpx
 from PIL import Image, ImageDraw
 from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, ChatJoinRequest
 from telegram.ext import ContextTypes
@@ -16,6 +18,64 @@ PENDING_JOIN_REQUESTS = {}  # (chat_id, user_id) → {msg_id, task, correct_ans,
 
 CHECK_EMOJI_ID = "5776375003280838798"
 SHIELD_EMOJI_ID = "5931409969613116639"
+
+
+async def _fetch_user_fullinfo(username: str) -> dict | None:
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "http://127.0.0.1:9191/getuserfull",
+                params={"username": username},
+            )
+            if resp.status_code == 200:
+                return resp.json()
+            logger.warning(f"getuserfull failed for {username}: HTTP {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"getuserfull error for {username}: {e}")
+    return None
+
+
+def _match_4char(username: str | None) -> bool:
+    if not username:
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9]{4}", username))
+
+
+async def check_auto_pass(user, settings: dict) -> bool:
+    if not settings.get("auto_pass"):
+        return False
+
+    if settings.get("auto_pass_premium") and getattr(user, "is_premium", False):
+        return True
+
+    main_username = getattr(user, "username", None)
+    if settings.get("auto_pass_4char_username") and _match_4char(main_username):
+        return True
+
+    need_userbot = any(settings.get(k) for k in (
+        "auto_pass_phone_888", "auto_pass_phone_888_4",
+        "auto_pass_nft_username", "auto_pass_4char_username", "auto_pass_nft_gift",
+    ))
+    info = None
+    if need_userbot and main_username:
+        info = await _fetch_user_fullinfo(main_username)
+
+    phone = (info or {}).get("phone") if info else None
+    usernames = (info or {}).get("usernames") or [] if info else []
+    gifts = (info or {}).get("gifts") or [] if info else []
+
+    if settings.get("auto_pass_phone_888") and phone and re.fullmatch(r"888(\s?\d{4}){1,2}", phone):
+        return True
+    if settings.get("auto_pass_phone_888_4") and phone and re.fullmatch(r"888\s?\d{4}", phone):
+        return True
+    if settings.get("auto_pass_nft_username") and usernames:
+        return True
+    if settings.get("auto_pass_4char_username") and any(_match_4char(u) for u in usernames):
+        return True
+    if settings.get("auto_pass_nft_gift") and any("pepe" in (g or "").lower() for g in gifts):
+        return True
+
+    return False
 
 
 # ── Math / Captcha generators (shared) ────────────────
@@ -96,6 +156,19 @@ async def chat_join_request_handler(update: Update, context: ContextTypes.DEFAUL
             return
     if not settings or not settings.get("status"):
         # no verification → approve immediately
+        try:
+            await join_req.approve()
+            group_name = chat.title or str(chat.id)
+            await context.bot.send_message(
+                chat_id=user_chat_id,
+                text=f'{shield} 你已加入 <b>{group_name}</b>，欢迎！',
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return
+
+    if await check_auto_pass(user, settings):
         try:
             await join_req.approve()
             group_name = chat.title or str(chat.id)
@@ -529,6 +602,10 @@ async def perform_verification(context: ContextTypes.DEFAULT_TYPE, chat, user):
             logger.error(f"blacklist ban fail for {user.id} in {chat.id}: {e}")
         return
     if not settings.get("status"):
+        await send_welcome_message(context, chat, user)
+        return
+
+    if await check_auto_pass(user, settings):
         await send_welcome_message(context, chat, user)
         return
 

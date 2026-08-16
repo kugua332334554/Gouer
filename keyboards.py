@@ -199,6 +199,41 @@ def get_group_verification_keyboard(chat_id: str, current_state: dict, lang: str
             InlineKeyboardButton(_("enable_btn", lang), callback_data=f"verify_set_black_1_{chat_id}", **opt_kwargs(current_state.get('block_blacklist', False))),
             InlineKeyboardButton(_("disable_btn", lang), callback_data=f"verify_set_black_0_{chat_id}", **opt_kwargs(not current_state.get('block_blacklist', False)))
         ],
+        [
+            InlineKeyboardButton("自动放行", callback_data="noop", icon_custom_emoji_id="5363972600001216334"),
+            InlineKeyboardButton(_("enable_btn", lang), callback_data=f"verify_set_autopass_1_{chat_id}", **opt_kwargs(current_state.get('auto_pass', False))),
+            InlineKeyboardButton(_("disable_btn", lang), callback_data=f"verify_set_autopass_0_{chat_id}", **opt_kwargs(not current_state.get('auto_pass', False)))
+        ],
+        [
+            InlineKeyboardButton("TG会员", callback_data="noop"),
+            InlineKeyboardButton(_("enable_btn", lang), callback_data=f"verify_set_autopremium_1_{chat_id}", **opt_kwargs(current_state.get('auto_pass_premium', False))),
+            InlineKeyboardButton(_("disable_btn", lang), callback_data=f"verify_set_autopremium_0_{chat_id}", **opt_kwargs(not current_state.get('auto_pass_premium', False)))
+        ],
+        [
+            InlineKeyboardButton("888匿名号码", callback_data="noop"),
+            InlineKeyboardButton(_("enable_btn", lang), callback_data=f"verify_set_autophone888_1_{chat_id}", **opt_kwargs(current_state.get('auto_pass_phone_888', False))),
+            InlineKeyboardButton(_("disable_btn", lang), callback_data=f"verify_set_autophone888_0_{chat_id}", **opt_kwargs(not current_state.get('auto_pass_phone_888', False)))
+        ],
+        [
+            InlineKeyboardButton("888四位匿名号码", callback_data="noop"),
+            InlineKeyboardButton(_("enable_btn", lang), callback_data=f"verify_set_autophone8884_1_{chat_id}", **opt_kwargs(current_state.get('auto_pass_phone_888_4', False))),
+            InlineKeyboardButton(_("disable_btn", lang), callback_data=f"verify_set_autophone8884_0_{chat_id}", **opt_kwargs(not current_state.get('auto_pass_phone_888_4', False)))
+        ],
+        [
+            InlineKeyboardButton("主页含NFT用户名", callback_data="noop"),
+            InlineKeyboardButton(_("enable_btn", lang), callback_data=f"verify_set_autonftname_1_{chat_id}", **opt_kwargs(current_state.get('auto_pass_nft_username', False))),
+            InlineKeyboardButton(_("disable_btn", lang), callback_data=f"verify_set_autonftname_0_{chat_id}", **opt_kwargs(not current_state.get('auto_pass_nft_username', False)))
+        ],
+        [
+            InlineKeyboardButton("主页含4位用户名", callback_data="noop"),
+            InlineKeyboardButton(_("enable_btn", lang), callback_data=f"verify_set_auto4char_1_{chat_id}", **opt_kwargs(current_state.get('auto_pass_4char_username', False))),
+            InlineKeyboardButton(_("disable_btn", lang), callback_data=f"verify_set_auto4char_0_{chat_id}", **opt_kwargs(not current_state.get('auto_pass_4char_username', False)))
+        ],
+        [
+            InlineKeyboardButton("有NFT礼物PEPE", callback_data="noop"),
+            InlineKeyboardButton(_("enable_btn", lang), callback_data=f"verify_set_autonftgift_1_{chat_id}", **opt_kwargs(current_state.get('auto_pass_nft_gift', False))),
+            InlineKeyboardButton(_("disable_btn", lang), callback_data=f"verify_set_autonftgift_0_{chat_id}", **opt_kwargs(not current_state.get('auto_pass_nft_gift', False)))
+        ],
         [InlineKeyboardButton("« " + _("back_group_manage", lang), callback_data=f"manage_group_{chat_id}")]
     ]
     return InlineKeyboardMarkup(keyboard)

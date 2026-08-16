@@ -64,6 +64,21 @@ def get_verification_text(state: dict) -> str:
     penalty_text = "禁言" if state['penalty'] == 'mute' else "踢出"
     mode_map = {"button": "按钮", "math": "数学题", "captcha": "验证码"}
     mode_text = mode_map.get(state['mode'], state['mode'])
+    auto_pass_text = "开启" if state.get("auto_pass") else "关闭"
+    auto_conditions = []
+    if state.get("auto_pass_premium"):
+        auto_conditions.append("TG会员")
+    if state.get("auto_pass_phone_888"):
+        auto_conditions.append("888匿名号码")
+    if state.get("auto_pass_phone_888_4"):
+        auto_conditions.append("888四位匿名号码")
+    if state.get("auto_pass_nft_username"):
+        auto_conditions.append("主页含NFT用户名")
+    if state.get("auto_pass_4char_username"):
+        auto_conditions.append("主页含4位用户名")
+    if state.get("auto_pass_nft_gift"):
+        auto_conditions.append("有NFT礼物PEPE")
+    auto_cond_text = "、".join(auto_conditions) if auto_conditions else "无"
     return (
         f'<tg-emoji emoji-id="5931409969613116639">🛡</tg-emoji> <b>进群验证</b>\n\n'
         f'启用后，新用户需要完成验证，才能发送消息。\n\n'
@@ -71,7 +86,9 @@ def get_verification_text(state: dict) -> str:
         f'<tg-emoji emoji-id="5879895758202735862">🔒</tg-emoji> <b>模式:</b> {mode_text}\n'
         f'<b>验证时间:</b> {state["duration"]} 分钟\n'
         f'<b>超时惩罚:</b> {penalty_text}\n'
-        f'<tg-emoji emoji-id="5120863672792515559">🧧</tg-emoji> <b>禁止红包挂进入:</b> {"开启" if state.get("block_blacklist") else "关闭"}'
+        f'<tg-emoji emoji-id="5120863672792515559">🧧</tg-emoji> <b>禁止红包挂进入:</b> {"开启" if state.get("block_blacklist") else "关闭"}\n'
+        f'<tg-emoji emoji-id="5363972600001216334">🎯</tg-emoji> <b>自动放行:</b> {auto_pass_text}\n'
+        f'<b>放行条件:</b> {auto_cond_text}'
     )
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -381,13 +398,34 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             current_state["penalty"] = setting_value
         elif setting_type == "black":
             current_state["block_blacklist"] = True if setting_value == "1" else False
+        elif setting_type == "autopass":
+            current_state["auto_pass"] = True if setting_value == "1" else False
+        elif setting_type == "autopremium":
+            current_state["auto_pass_premium"] = True if setting_value == "1" else False
+        elif setting_type == "autophone888":
+            current_state["auto_pass_phone_888"] = True if setting_value == "1" else False
+        elif setting_type == "autophone8884":
+            current_state["auto_pass_phone_888_4"] = True if setting_value == "1" else False
+        elif setting_type == "autonftname":
+            current_state["auto_pass_nft_username"] = True if setting_value == "1" else False
+        elif setting_type == "auto4char":
+            current_state["auto_pass_4char_username"] = True if setting_value == "1" else False
+        elif setting_type == "autonftgift":
+            current_state["auto_pass_nft_gift"] = True if setting_value == "1" else False
         await update_verify_settings(
             chat_id,
             current_state["status"],
             current_state["mode"],
             current_state["duration"],
             current_state["penalty"],
-            current_state.get("block_blacklist", False)
+            current_state.get("block_blacklist", False),
+            auto_pass=current_state.get("auto_pass", False),
+            auto_pass_premium=current_state.get("auto_pass_premium", False),
+            auto_pass_phone_888=current_state.get("auto_pass_phone_888", False),
+            auto_pass_phone_888_4=current_state.get("auto_pass_phone_888_4", False),
+            auto_pass_nft_username=current_state.get("auto_pass_nft_username", False),
+            auto_pass_4char_username=current_state.get("auto_pass_4char_username", False),
+            auto_pass_nft_gift=current_state.get("auto_pass_nft_gift", False),
         )
         await query.answer("设置已更新！")
         text = get_verification_text(current_state)

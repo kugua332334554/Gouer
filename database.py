@@ -69,7 +69,14 @@ async def init_db():
                         verify_mode VARCHAR(50) DEFAULT 'button',
                         verify_duration INT DEFAULT 1,
                         verify_penalty VARCHAR(50) DEFAULT 'mute',
-                        block_blacklist_join BOOLEAN DEFAULT FALSE
+                        block_blacklist_join BOOLEAN DEFAULT FALSE,
+                        auto_pass BOOLEAN DEFAULT FALSE,
+                        auto_pass_premium BOOLEAN DEFAULT FALSE,
+                        auto_pass_phone_888 BOOLEAN DEFAULT FALSE,
+                        auto_pass_phone_888_4 BOOLEAN DEFAULT FALSE,
+                        auto_pass_nft_username BOOLEAN DEFAULT FALSE,
+                        auto_pass_4char_username BOOLEAN DEFAULT FALSE,
+                        auto_pass_nft_gift BOOLEAN DEFAULT FALSE
                     )
                 """)
                 await cur.execute("""
@@ -108,6 +115,34 @@ async def init_db():
                     pass
                 try:
                     await cur.execute("ALTER TABLE group_settings ADD COLUMN block_blacklist_join BOOLEAN DEFAULT FALSE")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_settings ADD COLUMN auto_pass BOOLEAN DEFAULT FALSE")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_settings ADD COLUMN auto_pass_premium BOOLEAN DEFAULT FALSE")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_settings ADD COLUMN auto_pass_phone_888 BOOLEAN DEFAULT FALSE")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_settings ADD COLUMN auto_pass_phone_888_4 BOOLEAN DEFAULT FALSE")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_settings ADD COLUMN auto_pass_nft_username BOOLEAN DEFAULT FALSE")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_settings ADD COLUMN auto_pass_4char_username BOOLEAN DEFAULT FALSE")
+                except Exception:
+                    pass
+                try:
+                    await cur.execute("ALTER TABLE group_settings ADD COLUMN auto_pass_nft_gift BOOLEAN DEFAULT FALSE")
                 except Exception:
                     pass
                 await cur.execute(f"""
@@ -883,23 +918,39 @@ async def get_verify_settings(chat_id: int) -> dict:
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT verify_status, verify_mode, verify_duration, verify_penalty, block_blacklist_join FROM group_settings WHERE chat_id = %s", (chat_id,))
+                await cur.execute("SELECT verify_status, verify_mode, verify_duration, verify_penalty, block_blacklist_join, auto_pass, auto_pass_premium, auto_pass_phone_888, auto_pass_phone_888_4, auto_pass_nft_username, auto_pass_4char_username, auto_pass_nft_gift FROM group_settings WHERE chat_id = %s", (chat_id,))
                 result = await cur.fetchone()
                 if result:
-                    return {"status": bool(result[0]), "mode": result[1], "duration": result[2], "penalty": result[3], "block_blacklist": bool(result[4])}
+                    return {
+                        "status": bool(result[0]), "mode": result[1], "duration": result[2], "penalty": result[3],
+                        "block_blacklist": bool(result[4]),
+                        "auto_pass": bool(result[5]), "auto_pass_premium": bool(result[6]),
+                        "auto_pass_phone_888": bool(result[7]), "auto_pass_phone_888_4": bool(result[8]),
+                        "auto_pass_nft_username": bool(result[9]), "auto_pass_4char_username": bool(result[10]),
+                        "auto_pass_nft_gift": bool(result[11]),
+                    }
     except Exception as e:
         logger.error(f"get_verify_settings err: {e}", exc_info=True)
-    return {"status": False, "mode": "button", "duration": 1, "penalty": "mute", "block_blacklist": False}
+    return {
+        "status": False, "mode": "button", "duration": 1, "penalty": "mute", "block_blacklist": False,
+        "auto_pass": False, "auto_pass_premium": False, "auto_pass_phone_888": False,
+        "auto_pass_phone_888_4": False, "auto_pass_nft_username": False,
+        "auto_pass_4char_username": False, "auto_pass_nft_gift": False,
+    }
 
-async def update_verify_settings(chat_id: int, status: bool, mode: str, duration: int, penalty: str, block_blacklist: bool = False):
+async def update_verify_settings(chat_id: int, status: bool, mode: str, duration: int, penalty: str, block_blacklist: bool = False,
+                                 auto_pass: bool = False, auto_pass_premium: bool = False,
+                                 auto_pass_phone_888: bool = False, auto_pass_phone_888_4: bool = False,
+                                 auto_pass_nft_username: bool = False, auto_pass_4char_username: bool = False,
+                                 auto_pass_nft_gift: bool = False):
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
-                    INSERT INTO group_settings (chat_id, verify_status, verify_mode, verify_duration, verify_penalty, block_blacklist_join)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE verify_status=VALUES(verify_status), verify_mode=VALUES(verify_mode), verify_duration=VALUES(verify_duration), verify_penalty=VALUES(verify_penalty), block_blacklist_join=VALUES(block_blacklist_join)
-                """, (chat_id, status, mode, duration, penalty, block_blacklist))
+                    INSERT INTO group_settings (chat_id, verify_status, verify_mode, verify_duration, verify_penalty, block_blacklist_join, auto_pass, auto_pass_premium, auto_pass_phone_888, auto_pass_phone_888_4, auto_pass_nft_username, auto_pass_4char_username, auto_pass_nft_gift)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE verify_status=VALUES(verify_status), verify_mode=VALUES(verify_mode), verify_duration=VALUES(verify_duration), verify_penalty=VALUES(verify_penalty), block_blacklist_join=VALUES(block_blacklist_join), auto_pass=VALUES(auto_pass), auto_pass_premium=VALUES(auto_pass_premium), auto_pass_phone_888=VALUES(auto_pass_phone_888), auto_pass_phone_888_4=VALUES(auto_pass_phone_888_4), auto_pass_nft_username=VALUES(auto_pass_nft_username), auto_pass_4char_username=VALUES(auto_pass_4char_username), auto_pass_nft_gift=VALUES(auto_pass_nft_gift)
+                """, (chat_id, status, mode, duration, penalty, block_blacklist, auto_pass, auto_pass_premium, auto_pass_phone_888, auto_pass_phone_888_4, auto_pass_nft_username, auto_pass_4char_username, auto_pass_nft_gift))
     except Exception as e:
         logger.error(f"update_verify_settings err: {e}", exc_info=True)
 

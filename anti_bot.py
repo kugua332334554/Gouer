@@ -160,12 +160,17 @@ async def anti_bot_callback_handler(update: Update, context: ContextTypes.DEFAUL
     # 按速度排序
     ranked = sorted(clicks.items(), key=lambda x: x[1][0])
     items = []
-    for rank, (uid, (e, n, correct)) in enumerate(ranked, 1):
+    # 只显示前 30 名，避免消息超长
+    for rank, (uid, (e, n, correct)) in enumerate(ranked[:30], 1):
         emoji = "🥇" if rank == 1 else ("🥈" if rank == 2 else ("🥉" if rank == 3 else f"{rank}"))
         ms = int(e * 1000)
         warn = f" ⚠️{ms}ms" if e < 1.0 else ""
         mark = " ✅" if correct else " ❌"
         items.append(f"{emoji} {html.escape(n)} · {e:.2f}s{mark}{warn}")
+
+    overflow = len(ranked) - 30
+    if overflow > 0:
+        items.append(f"... 还有 {overflow} 人未显示")
 
     live_text = (
         f'{test["header_text"]}\n\n'
@@ -225,23 +230,30 @@ async def _finish_test(context, chat_id, msg_id):
         f'<tg-emoji emoji-id="{LIST_EMOJI}">📋</tg-emoji> <b>领取名单</b>',
     ]
 
-    # 真人列表
-    for uid, name, elapsed in legit:
+    # 真人列表（最多 10 名，会员表情标签较长，防止超长）
+    for uid, name, elapsed in legit[:10]:
         ms = int(elapsed * 1000)
         warn = f' <tg-emoji emoji-id="{WARN_EMOJI}">⚠️</tg-emoji>秒抢 {ms}ms' if elapsed < 2 else ""
         lines.append(f'<tg-emoji emoji-id="{GOLD_EMOJI}">🥇</tg-emoji> {html.escape(name)} · {elapsed:.2f}<tg-emoji emoji-id="{BILL_EMOJI}">💴</tg-emoji> · {now}{warn}')
+    if len(legit) > 10:
+        lines.append(f'... 另有 {len(legit) - 10} 名真人未列出')
 
     if wrong:
-        for uid, name, elapsed in wrong:
+        for uid, name, elapsed in wrong[:10]:
             lines.append(f'❌ {html.escape(name)} · {elapsed:.2f}s')
+        if len(wrong) > 10:
+            lines.append(f'... 另有 {len(wrong) - 10} 名答错未列出')
 
     if suspects:
         lines.append('')
         lines.append(f'<tg-emoji emoji-id="{ALERT_EMOJI}">🚨</tg-emoji> <b>外挂嫌疑 ×{len(suspects)}</b>')
-        for uid, name, elapsed in suspects:
+        # 外挂名单最多显示 10 名，防止超长
+        for uid, name, elapsed in suspects[:10]:
             ms = int(elapsed * 1000)
             lines.append(f'<tg-emoji emoji-id="{RED_DOT_EMOJI}">🔴</tg-emoji> <b>{html.escape(name)}</b>')
             lines.append(f'    秒抢 {ms}ms')
+        if len(suspects) > 10:
+            lines.append(f'... 另有 {len(suspects) - 10} 名外挂嫌疑未列出（仍可一键封禁）')
 
     result_text = "\n".join(lines)
 
@@ -280,8 +292,9 @@ def _build_ban_keyboard(chat_id, pending, candidates):
             f"🚫 一键封禁全部 ({len(pending)}人)",
             callback_data=f"atb_banall_{chat_id}"
         )])
+        # 单个封禁按钮最多 30 个（10 行），超量则省略单个按钮，只用聚合按钮
         row = []
-        for uid, name in pending:
+        for uid, name in pending[:30]:
             row.append(InlineKeyboardButton(
                 f"封禁 {name[:6]}", callback_data=f"atb_banone_{chat_id}_{uid}"
             ))
@@ -290,6 +303,10 @@ def _build_ban_keyboard(chat_id, pending, candidates):
                 row = []
         if row:
             kb.append(row)
+        if len(pending) > 30:
+            kb.append([InlineKeyboardButton(
+                f"... 另有 {len(pending) - 30} 人（用上方一键封禁）", callback_data="noop"
+            )])
     if candidates:
         kb.append([InlineKeyboardButton(
             f"加入集群黑名单 ({len(candidates)}人)",
