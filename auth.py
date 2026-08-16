@@ -154,21 +154,26 @@ async def chat_join_request_handler(update: Update, context: ContextTypes.DEFAUL
             except Exception:
                 pass
             return
-    if not settings or not settings.get("status"):
-        # no verification → approve immediately
-        try:
-            await join_req.approve()
-            group_name = chat.title or str(chat.id)
-            await context.bot.send_message(
-                chat_id=user_chat_id,
-                text=f'{shield} 你已加入 <b>{group_name}</b>，欢迎！',
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
+
+    # 自动放行独立于进群验证开关，优先判断
+    if settings.get("auto_pass"):
+        if await check_auto_pass(user, settings):
+            try:
+                await join_req.approve()
+                group_name = chat.title or str(chat.id)
+                await context.bot.send_message(
+                    chat_id=user_chat_id,
+                    text=f'{shield} 你已加入 <b>{group_name}</b>，欢迎！',
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+            return
+        # 不符合放行条件 → 留在 pending 等管理员手动审核
         return
 
-    if await check_auto_pass(user, settings):
+    if not settings or not settings.get("status"):
+        # no verification → approve immediately
         try:
             await join_req.approve()
             group_name = chat.title or str(chat.id)

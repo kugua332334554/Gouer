@@ -281,7 +281,7 @@ async def clone_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 def _launch_bot_process(token: str, db_name: str) -> int:
     import subprocess, sys, os as _os
-    env = {**_os.environ, "BOT_TOKEN": token, "DB": db_name, "BOT_IS_CHILD": "1"}
+    env = {**_os.environ, "BOT_TOKEN": token, "DB": db_name, "BOT_IS_CHILD": "1", "COMMON_DB": config.DB}
     main_py = _os.path.join(_os.path.dirname(__file__), "main.py")
     p = subprocess.Popen(
         [sys.executable, main_py],
