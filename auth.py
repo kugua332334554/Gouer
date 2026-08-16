@@ -297,7 +297,7 @@ async def auth_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
                     logger.error(f"approve join_request failed: {e}")
 
             if approved:
-                await query.answer(f"{check_ok} 验证通过！已批准入群。", show_alert=True)
+                await query.answer("✅ 验证通过！已批准入群。", show_alert=True)
                 group_name = "群组"
                 try:
                     group_chat = await context.bot.get_chat(target_cid)
