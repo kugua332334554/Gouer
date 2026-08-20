@@ -367,8 +367,8 @@ def get_lottery_keyboard(lottery_id: int, lottery_type: str = "general") -> Inli
 def get_draw_keyboard(lottery_id: int, chat_id: str, status: str = "active") -> InlineKeyboardMarkup:
     kb = []
     if status == "active":
-        kb.append([InlineKeyboardButton("提前开奖", callback_data=f"cj_draw_{lottery_id}", icon_custom_emoji_id=DICE_EMOJI_ID),
-                   InlineKeyboardButton("取消抽奖", callback_data=f"cj_cancel_{lottery_id}", icon_custom_emoji_id=CROSS_EMOJI_ID)])
+        kb.append([InlineKeyboardButton("提前开奖", callback_data=f"cj_draw_{chat_id}_{lottery_id}", icon_custom_emoji_id=DICE_EMOJI_ID),
+                   InlineKeyboardButton("取消抽奖", callback_data=f"cj_cancel_{chat_id}_{lottery_id}", icon_custom_emoji_id=CROSS_EMOJI_ID)])
     kb.append([InlineKeyboardButton("« 返回管理", callback_data=f"cj_manage_{chat_id}_all_1")])
     return InlineKeyboardMarkup(kb)
 
