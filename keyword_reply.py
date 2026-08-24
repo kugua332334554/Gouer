@@ -1,5 +1,7 @@
 import logging
+import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 import database
 from lang import t_sync, DEFAULT_LANG
@@ -94,7 +96,7 @@ async def get_kwr_list_text(chat_id: str, replies: list) -> str:
             has_media = f'<tg-emoji emoji-id="{MEDIA_EMOJI_ID}">📷</tg-emoji>' if item.get("media_file_id") else ""
             has_btn = f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji>' if item.get("buttons_text") else ""
             extras = " ".join(filter(None, [has_text, has_media, has_btn]))
-            text_parts.append(f'\n{idx}. {status_icon} <b>{kw_display}</b> ({mode_label}) {extras}')
+            text_parts.append(f'\n{idx}. {status_icon} <b>{html.escape(kw_display)}</b> ({mode_label}) {extras}')
     return "".join(text_parts)
 
 
@@ -109,7 +111,7 @@ async def get_kwr_detail_text(item: dict) -> str:
     kw_display = " | ".join(kw_list)
     return (
         f'<tg-emoji emoji-id="{KEY_EMOJI_ID}">🔑</tg-emoji> <b>关键词详情</b>\n\n'
-        f'<b>关键词：</b>{kw_display}\n'
+        f'<b>关键词：</b>{html.escape(kw_display)}\n'
         f'<b>匹配模式：</b>{mode_label}\n'
         f'<b>状态：</b>{status_icon} {status_label}\n'
         f'<b>回复文字：</b>{has_text}\n'
@@ -282,17 +284,23 @@ async def kwr_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         chat_id = int(parts[2])
         reply_id = int(parts[3])
         item = await database.get_keyword_reply(reply_id)
-        current = (item.get("reply_text") or "未设置")[:200] if item else "未设置"
+        # reply_text 本身就是 get_message_html 产出的完整 HTML，直接原样渲染进 blockquote，
+        # 管理员看到的是真正的展示效果（加粗/链接/引用/会员表情），而不是裸标签源码；
+        # 也不截断——expandable blockquote 默认折叠，长内容点开才展开，不占版面。
+        current = item.get("reply_text") or "未设置" if item else "未设置"
         await query.answer()
         _AWAIT_KWR[user_id] = {"chat_id": chat_id, "reply_id": reply_id, "field": "reply_text"}
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("清空文字", callback_data=f"kwr_cleartext_{chat_id}_{reply_id}", icon_custom_emoji_id=DELETE_EMOJI_ID),
                                     InlineKeyboardButton("« 取消", callback_data=f"kwr_detail_{chat_id}_{reply_id}")]])
-        await query.message.reply_html(
-            f'<tg-emoji emoji-id="{TEXT_EMOJI_ID}">📝</tg-emoji> <b>编辑回复文字</b>\n\n'
-            f'支持 HTML 和<b>自定义会员表情</b>\n\n'
-            f'当前内容：\n<blockquote expandable>{current}</blockquote>\n\n请发送新的文字内容：',
-            reply_markup=kb
-        )
+        body = (f'<tg-emoji emoji-id="{TEXT_EMOJI_ID}">📝</tg-emoji> <b>编辑回复文字</b>\n\n'
+                f'支持 HTML 和<b>自定义会员表情</b>\n\n'
+                f'当前内容：\n<blockquote expandable>{current}</blockquote>\n\n请发送新的文字内容：')
+        try:
+            await query.message.reply_html(body, reply_markup=kb)
+        except BadRequest:
+            # 存量数据可能是手改/历史畸形 HTML，直接渲染会 Can't parse entities，
+            # 降级为转义纯文本，保证面板不崩
+            await query.message.reply_html(body.replace(current, html.escape(current), 1), reply_markup=kb)
         return
 
     # ── 编辑媒体 ──
@@ -413,7 +421,7 @@ async def kwr_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kw_display = " | ".join(kw_list)
             mode_label = "完全匹配" if match_mode == "exact" else "包含匹配"
             await msg.reply_html(
-                f'{EMOJI_SUCCESS} 关键词 <b>{kw_display}</b>（{mode_label}）已创建！\n\n'
+                f'{EMOJI_SUCCESS} 关键词 <b>{html.escape(kw_display)}</b>（{mode_label}）已创建！\n\n'
                 f'<tg-emoji emoji-id="{TEXT_EMOJI_ID}">📝</tg-emoji> <b>第二步：设置回复文字</b>\n\n'
                 f'支持 HTML 和<b>自定义会员表情</b>\n请发送回复的文字内容：',
                 reply_markup=kb
