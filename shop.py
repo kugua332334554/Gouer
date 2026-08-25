@@ -304,6 +304,8 @@ async def shop_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try: stock = int(raw)
         except ValueError:
             await msg.reply_html(f'{EMOJI_WARN} 库存必须是数字，请重新发送：', reply_markup=cancel_kb); return
+        if stock < -1:
+            await msg.reply_html(f'{EMOJI_WARN} 库存只能是非负整数或 <b>-1</b>（-1 表示无限库存），请重新发送：', reply_markup=cancel_kb); return
         name = info.get("name", ""); price = info.get("price", 0)
         desc = info.get("desc", "")
         item_id = await database.add_shop_item(chat_id, name, price, stock, desc)

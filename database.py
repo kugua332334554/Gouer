@@ -1682,7 +1682,10 @@ async def get_shop_items(chat_id: int) -> list:
 
 async def add_shop_item(chat_id: int, name: str, points_price: int, stock: int = -1,
                          description: str = "") -> int:
-    """stock = -1 means unlimited"""
+    """stock = -1 means unlimited (only -1 is valid as the unlimited sentinel)"""
+    if stock < -1:
+        logger.warning(f"add_shop_item rejected illegal stock {stock} (only -1 means unlimited)")
+        return 0
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
@@ -1714,20 +1717,29 @@ async def pop_shop_card(item_id: int) -> str:
     try:
         async with db_pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT card_data FROM group_shop WHERE id=%s", (item_id,))
-                row = await cur.fetchone()
-                if not row or not row[0]:
-                    return ""
-                cards = row[0].strip().split("\n")
-                if not cards or (len(cards) == 1 and not cards[0]):
-                    return ""
-                first = cards[0].strip()
-                remaining = "\n".join(c[0].strip() for c in (cards[1:] if len(cards) > 1 else [""]) if c and c.strip())
-                new_stock = len([c for c in remaining.split("\n") if c.strip()]) if remaining else 0
-                await cur.execute(
-                    "UPDATE group_shop SET card_data=%s, stock=%s, status=%s WHERE id=%s",
-                    (remaining, new_stock, new_stock > 0, item_id))
-                return first
+                # 开启事务 + 行级排他锁，防止并发购买重复出同一张卡密
+                await cur.execute("BEGIN")
+                try:
+                    await cur.execute("SELECT card_data FROM group_shop WHERE id=%s FOR UPDATE", (item_id,))
+                    row = await cur.fetchone()
+                    if not row or not row[0]:
+                        await cur.execute("COMMIT")
+                        return ""
+                    cards = [c.strip() for c in row[0].strip().split("\n") if c.strip()]
+                    if not cards:
+                        await cur.execute("COMMIT")
+                        return ""
+                    first = cards[0]
+                    remaining = "\n".join(cards[1:])
+                    new_stock = len(cards) - 1
+                    await cur.execute(
+                        "UPDATE group_shop SET card_data=%s, stock=%s, status=%s WHERE id=%s",
+                        (remaining, new_stock, new_stock > 0, item_id))
+                    await cur.execute("COMMIT")
+                    return first
+                except Exception:
+                    await cur.execute("ROLLBACK")
+                    raise
     except Exception as e:
         logger.error(f"pop_shop_card err: {e}")
         return ""
