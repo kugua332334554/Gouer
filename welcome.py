@@ -333,7 +333,7 @@ async def welcome_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
         elif sub_action == "btn":
             prompt = (
-                "请发送按钮配置，格式：颜色（可选）-按钮文字-链接地址\n\n"
+                "请发送按钮配置，格式：[会员表情]-颜色-按钮文字-链接地址（前两项都可选，顺序随意）\n\n"
                 "提示：您可以直接在消息中插入/选择 Telegram 会员表情，系统将自动识别！\n\n"
                 "颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n"
                 "用 && 分隔同行多个按钮，换行分行\n\n"

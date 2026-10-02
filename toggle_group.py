@@ -141,7 +141,7 @@ async def toggle_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"tg_panel_{chat_id}")]])
             await query.message.reply_html(
                 f"请发送<b>{label}</b>配置：\n\n"
-                f"格式：<b>颜色（可选）-按钮文字-链接</b>\n"
+                f"格式：<b>[会员表情]-颜色-按钮文字-链接</b>（前两项都可选，顺序随意）\n"
                 f"颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n"
                 f"<b>按钮图标</b>：直接在消息里插入 Telegram 会员表情即可自动识别\n"
                 f"用 <b>&&</b> 分隔同行，<b>换行</b>分行\n\n"

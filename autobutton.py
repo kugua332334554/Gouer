@@ -146,7 +146,7 @@ async def autobutton_callback_handler(update: Update, context: ContextTypes.DEFA
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("« 取消", callback_data=f"ab_panel_{chat_id}")]])
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑自动按钮</b>\n\n'
-            f'格式：<b>颜色（可选）-按钮文字-链接</b>\n'
+            f'格式：<b>[会员表情]-颜色-按钮文字-链接</b>（前两项都可选，顺序随意）\n'
             f'颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n'
             f'用 <b>&&</b> 分隔同行，<b>换行</b>分行\n\n'
             f'示例：\n<code>蓝色-官方频道-https://t.me/channel</code>\n'

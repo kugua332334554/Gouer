@@ -385,7 +385,7 @@ async def _do_step_skip(context, chat_id: str, dingshi_id: int, current_step: st
     prompts = {
         "text": (f'<tg-emoji emoji-id="{TEXT_EMOJI_ID}">📝</tg-emoji> <b>第二步：设置消息文本</b>\n\n支持 HTML 和文字字体格式（加粗、链接、删透、块引用、<b>自定义会员表情</b>等）\n\n请发送定时消息的文本内容：', True),
         "media": (f'<tg-emoji emoji-id="{MEDIA_EMOJI_ID}">🖼</tg-emoji> <b>第三步：设置媒体附件（可选）</b>\n\n请发送图片、视频或文件（大小不超过 <b>5MB</b>）：', True),
-        "buttons": (f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>第四步：设置按钮（可选）</b>\n\n格式：<b>颜色（可选）-按钮文字-链接</b>\n颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n用 <b>&&</b> 分隔同行，<b>换行</b>分行\n\n示例：\n<code>蓝色-官方频道-https://t.me/channel</code>\n<code>红色-按钮1-https://a.com && 绿色-按钮2-https://b.com</code>：', True),
+        "buttons": (f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>第四步：设置按钮（可选）</b>\n\n格式：<b>[会员表情]-颜色-按钮文字-链接</b>（前两项都可选，顺序随意）\n颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n用 <b>&&</b> 分隔同行，<b>换行</b>分行\n\n示例：\n<code>蓝色-官方频道-https://t.me/channel</code>\n<code>红色-按钮1-https://a.com && 绿色-按钮2-https://b.com</code>：', True),
     }
     prompt, has_skip = prompts[next_s]
     await context.bot.send_message(chat_id=target_chat_id, text=prompt, parse_mode="HTML", reply_markup=kb)
@@ -538,7 +538,7 @@ async def dingshi_callback_handler(update: Update, context: ContextTypes.DEFAULT
         kb = get_step_keyboard(chat_id, dingshi_id, "buttons", show_clear=True, show_skip=True)
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑定时消息按钮</b>\n\n'
-            f'格式：<b>颜色（可选）-按钮文字-链接</b>\n'
+            f'格式：<b>[会员表情]-颜色-按钮文字-链接</b>（前两项都可选，顺序随意）\n'
             f'颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n'
             f'用 <b>&&</b> 分隔同行按钮，<b>换行</b>分行\n\n'
             f'示例：\n<code>蓝色-官方频道-https://t.me/channel</code>\n'
@@ -741,7 +741,7 @@ async def dingshi_input_handler(update: Update, context: ContextTypes.DEFAULT_TY
             await message.reply_html(
                 f'{EMOJI_SUCCESS} 媒体附件已设置！\n\n'
                 f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>第四步：设置按钮（可选）</b>\n\n'
-                f'格式：<b>颜色（可选）-按钮文字-链接</b>\n'
+                f'格式：<b>[会员表情]-颜色-按钮文字-链接</b>（前两项都可选，顺序随意）\n'
                 f'颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n'
                 f'用 <b>&&</b> 分隔同行，<b>换行</b>分行',
                 reply_markup=kb

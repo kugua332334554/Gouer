@@ -328,7 +328,7 @@ async def kwr_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                                     InlineKeyboardButton("« 取消", callback_data=f"kwr_detail_{chat_id}_{reply_id}")]])
         await query.message.reply_html(
             f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑回复按钮</b>\n\n'
-            f'格式：<b>颜色（可选）-按钮文字-链接</b>\n'
+            f'格式：<b>[会员表情]-颜色-按钮文字-链接</b>（前两项都可选，顺序随意）\n'
             f'颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n'
             f'<b>按钮图标</b>：直接在消息里插入 Telegram 会员表情即可自动识别\n'
             f'用 <b>&&</b> 分隔同行按钮，<b>换行</b>分行\n\n'
@@ -483,7 +483,7 @@ async def kwr_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_html(
             f'{EMOJI_SUCCESS} 媒体已设置！\n\n'
             f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>第四步：设置回复按钮（可选）</b>\n\n'
-            f'格式：<b>颜色（可选）-按钮文字-链接</b>\n'
+            f'格式：<b>[会员表情]-颜色-按钮文字-链接</b>（前两项都可选，顺序随意）\n'
             f'颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n'
             f'<b>按钮图标</b>：直接在消息里插入 Telegram 会员表情即可自动识别\n'
             f'用 <b>&&</b> 分隔同行按钮，<b>换行</b>分行\n\n'

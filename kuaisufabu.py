@@ -307,7 +307,7 @@ async def kuaisufabu_callback_handler(update: Update, context: ContextTypes.DEFA
         await query.answer()
         _AWAIT_KUAISU_INPUT[user_id] = {"type": "edit_buttons", "ks_id": ks_id, "conv_chat": update.effective_chat.id}
         kb = get_cancel_keyboard(ks_id, int(parts[3]))
-        await query.message.reply_html(f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑按钮</b>\n\n格式：<b>颜色（可选）-按钮文字-链接</b>\n颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n用 <b>&&</b> 分隔同行\n\n示例：\n<code>红色-按钮1-https://a.com && 蓝色-按钮2-https://b.com</code>\n发送 <code>清空</code> 清除', reply_markup=kb)
+        await query.message.reply_html(f'<tg-emoji emoji-id="{BTN_EMOJI_ID}">🔘</tg-emoji> <b>编辑按钮</b>\n\n格式：<b>[会员表情]-颜色-按钮文字-链接</b>（前两项都可选，顺序随意）\n颜色可选：红色 / 绿色 / 蓝色（也可以只写 红 / 绿 / 蓝）\n用 <b>&&</b> 分隔同行\n\n示例：\n<code>红色-按钮1-https://a.com && 蓝色-按钮2-https://b.com</code>\n发送 <code>清空</code> 清除', reply_markup=kb)
         return
 
     if data.startswith("kf_edit_info_"):
