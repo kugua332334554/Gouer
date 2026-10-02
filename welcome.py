@@ -140,10 +140,15 @@ def parse_welcome_buttons(buttons_text: str):
                 continue
             style = None
             icon_custom_emoji_id = None
-            if parts[0] in color_map:
-                style = color_map[parts.pop(0)]
-            if parts and parts[0].isdigit() and len(parts[0]) >= 5:
-                icon_custom_emoji_id = parts.pop(0)
+            # 颜色与会员表情 ID 允许出现在开头的前两个位置、顺序任意：
+            # 「红色-文字-链接」「🔥-红色-文字-链接」「<emoji_id>-红色-文字-链接」都支持
+            for token in parts[:2]:
+                if token in color_map and style is None:
+                    style = color_map[token]
+                    parts.remove(token)
+                elif token.isdigit() and len(token) >= 5 and icon_custom_emoji_id is None:
+                    icon_custom_emoji_id = token
+                    parts.remove(token)
             if len(parts) >= 2:
                 url = parts[-1]
                 text = "-".join(parts[:-1])
